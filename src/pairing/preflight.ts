@@ -82,10 +82,8 @@ export async function runPairingPreflight(options: {
     installId: options.identity.install_id,
     connectToken: token.token,
     port: options.config.port,
-    localApiUrl: bestUrl,
     lanUrls,
     publicUrls,
-    preferredUrls: session.preferred_urls,
   });
 
   if (options.openBrowser !== false) {
@@ -100,18 +98,14 @@ function buildPairingUrl(params: {
   installId: string;
   connectToken: string;
   port: number;
-  localApiUrl: string;
   lanUrls: string[];
   publicUrls: string[];
-  preferredUrls: string[];
 }): string {
   const qs = new URLSearchParams({
     link_id: params.linkId,
     install_id: params.installId,
     connect_token: params.connectToken,
     port: String(params.port),
-    local_url: params.localApiUrl,
-    preferred_urls: params.preferredUrls.join(","),
   });
   if (params.lanUrls.length > 0) qs.set("lan_urls", params.lanUrls.join(","));
   if (params.publicUrls.length > 0) qs.set("public_urls", params.publicUrls.join(","));
