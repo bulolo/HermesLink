@@ -1,103 +1,120 @@
 # @bulolo/hermes-link
 
-Local companion service and CLI for connecting [Hermes Agent](https://github.com/nousresearch/hermes-agent) to your devices through zhiji.
+本地伴随服务，为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供移动端接入能力，支持局域网直连。
 
-## Requirements
+## 环境要求
 
 - Node.js >= 20
-- A running [Hermes Agent](https://github.com/nousresearch/hermes-agent) installation
+- 已安装并运行的 [Hermes Agent](https://github.com/nousresearch/hermes-agent)
 
-## Installation
+## 安装
 
 ```bash
-npm install -g @bulolo/hermes-link
+npm install -g @bulolo/hermes-link --registry https://registry.npmjs.org
 ```
 
-## Quick Start
+## 快速开始
 
 ```bash
-# Start the background daemon
+# 启动后台服务
 hermeslink start
 
-# Check status
+# 生成配对二维码（手机扫码连接）
+hermeslink pair
+
+# 查看状态
 hermeslink status
 
-# View logs
+# 查看日志
 hermeslink logs
 ```
 
-## Commands
+## 配对流程
 
-| Command | Description |
-|---------|-------------|
-| `hermeslink start` | Start the background daemon |
-| `hermeslink stop` | Stop the daemon |
-| `hermeslink restart` | Restart the daemon |
-| `hermeslink status` | Show daemon and service status |
-| `hermeslink pair` | Generate a pairing URL for your device |
-| `hermeslink config get` | Show current configuration |
-| `hermeslink config set <key> <value>` | Set a configuration value |
-| `hermeslink autostart` | Show autostart status |
-| `hermeslink autostart enable` | Enable autostart on login |
-| `hermeslink autostart disable` | Disable autostart |
-| `hermeslink logs` | Show recent log entries |
-| `hermeslink logs --gateway` | Show Hermes gateway logs |
-| `hermeslink version` | Print version |
+```
+1. 运行 hermeslink pair
+        │
+        ▼
+   终端显示二维码
+        │
+        ▼
+   手机 App 扫码
+        │
+        ▼
+   直连本地服务 (局域网 / 127.0.0.1)
+```
 
-## Configuration
+配对完成后，手机 App 获得访问令牌，后续请求直接连接本地服务，无需经过外部服务器。
+
+## 命令一览
+
+| 命令 | 说明 |
+|------|------|
+| `hermeslink start` | 启动后台守护进程 |
+| `hermeslink stop` | 停止守护进程 |
+| `hermeslink restart` | 重启守护进程 |
+| `hermeslink status` | 查看运行状态 |
+| `hermeslink pair` | 生成配对二维码 |
+| `hermeslink config get` | 查看当前配置 |
+| `hermeslink config set <key> <value>` | 修改配置 |
+| `hermeslink autostart enable` | 开机自启 |
+| `hermeslink autostart disable` | 关闭自启 |
+| `hermeslink logs` | 查看日志 |
+| `hermeslink logs --gateway` | 查看 Hermes 网关日志 |
+| `hermeslink version` | 查看版本 |
+
+## 配置
 
 ```bash
-hermeslink config set port 52379          # Change listen port
-hermeslink config set lan-host 192.168.1.10  # Set LAN IP manually
-hermeslink config set language zh-CN      # Set language (auto/en/zh-CN)
-hermeslink config set log-level debug     # Set log level (debug/info/warn/error)
+hermeslink config set port 52379              # 修改监听端口
+hermeslink config set lan-host 192.168.1.10   # 手动指定局域网 IP
+hermeslink config set language zh-CN          # 语言 (auto/en/zh-CN)
+hermeslink config set log-level debug         # 日志级别 (debug/info/warn/error)
 ```
 
-Config is stored at `~/.hermeslink/config.json`.
+配置文件位于 `~/.hermeslink/config.json`。
 
-## How It Works
+## 工作原理
 
 ```
-Hermes App (mobile)
-       │
-       ▼
-hermes-relay.catwiki.ai  ──────────────────┐
-                                           │ WebSocket tunnel
-                                    hermeslink (this service)
-                                           │
-                                           ▼
-                                   Hermes Agent (local)
-                                   localhost:8642
+手机 App
+   │
+   └──→ hermeslink (本地, 端口 52379)
+              │
+              └──→ Hermes Agent (localhost:8642)
 ```
 
-`hermeslink` runs a local HTTP server (default port `52379`) and maintains a persistent WebSocket connection to the relay server. The mobile app connects through the relay and proxies requests to your local Hermes Agent.
+`hermeslink` 在本地运行一个 HTTP 服务，手机 App 通过局域网直接访问。对话、文件、指令均在本地处理，数据不经过外部服务器。
 
-## Runtime Files
+## 运行时文件
 
-All runtime files are stored in `~/.hermeslink/`:
+所有文件存储于 `~/.hermeslink/`：
 
-| Path | Description |
-|------|-------------|
-| `config.json` | User configuration |
-| `identity.json` | Device identity (ed25519 keypair) |
-| `link.db` | SQLite database (stats, usage) |
-| `logs/` | Log files |
-| `daemon.pid` | Daemon PID file |
+| 路径 | 说明 |
+|------|------|
+| `config.json` | 用户配置 |
+| `identity.json` | 设备身份（ed25519 密钥对）|
+| `credentials.json` | 已配对设备的访问令牌 |
+| `conversations/` | 对话数据 |
+| `blobs/` | 文件附件 |
+| `pairing/` | 配对会话 |
+| `link.db` | SQLite 数据库（统计信息）|
+| `logs/` | 日志文件 |
 
-## Environment Variables
+## 环境变量
 
-| Variable | Description |
-|----------|-------------|
-| `HERMESLINK_HOME` | Override runtime directory (default `~/.hermeslink`) |
-| `HERMESLINK_LOG_LEVEL` | Override log level |
-| `HERMESLINK_LANG` | Override language |
-| `HERMES_BIN` | Path to `hermes` binary (default: `hermes`) |
+| 变量 | 说明 |
+|------|------|
+| `HERMESLINK_HOME` | 覆盖运行时目录（默认 `~/.hermeslink`）|
+| `HERMESLINK_LOG_LEVEL` | 覆盖日志级别 |
+| `HERMESLINK_LANG` | 覆盖语言 |
+| `HERMES_BIN` | `hermes` 二进制路径（默认 `hermes`）|
 
-## Autostart
+## 开机自启
 
-On macOS, autostart is managed via launchd (`~/Library/LaunchAgents/com.hermes.link.plist`).  
-On Linux, via systemd user service or XDG autostart.  
-On Windows, via the Startup folder.
+- **macOS**：通过 launchd（`~/Library/LaunchAgents/com.hermes.link.plist`）
+- **Linux**：通过 systemd 用户服务或 XDG autostart
+- **Windows**：通过 Startup 文件夹
 
 ```bash
 hermeslink autostart enable
