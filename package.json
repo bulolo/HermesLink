@@ -1,0 +1,69 @@
+{
+  "name": "@bulolo/hermes-link",
+  "version": "0.1.1",
+  "description": "Hermes Link companion service and CLI for connecting hermes-agent through zhiji",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "hermeslink": "dist/cli/index.js"
+  },
+  "files": [
+    "dist",
+    "scripts/check-node-version.mjs",
+    "scripts/postinstall.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "hermes",
+    "hermes-agent",
+    "relay",
+    "link",
+    "cli"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --dts --clean",
+    "check": "tsc --noEmit",
+    "dev": "tsx src/cli/index.ts",
+    "preinstall": "node ./scripts/check-node-version.mjs",
+    "postinstall": "node ./scripts/postinstall.mjs",
+    "prepack": "npm run build",
+    "start": "node ./dist/cli/index.js",
+    "test": "vitest",
+    "publish:npm": "npm publish --access public"
+  },
+  "dependencies": {
+    "@koa/cors": "^5.0.0",
+    "@koa/router": "^15.4.0",
+    "better-sqlite3": "^12.9.0",
+    "koa": "^2.15.3",
+    "koa-bodyparser": "^4.4.1",
+    "pino": "^9.0.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/koa": "^2.15.0",
+    "@types/koa__cors": "^5.0.1",
+    "@types/koa-bodyparser": "^4.3.12",
+    "@types/node": "^20.19.39",
+    "@types/qrcode": "^1.5.6",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/ws": "^8.5.13",
+    "pino-pretty": "^13.0.0",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
