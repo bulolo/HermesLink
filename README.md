@@ -1,11 +1,11 @@
 # @bulolo/hermes-link
 
-Local companion service and CLI for connecting [Hermes Agent](https://catwiki.ai) to your devices through zhiji.
+Local companion service and CLI for connecting [Hermes Agent](https://github.com/nousresearch/hermes-agent) to your devices through zhiji.
 
 ## Requirements
 
 - Node.js >= 20
-- A running [Hermes Agent](https://catwiki.ai) installation
+- A running [Hermes Agent](https://github.com/nousresearch/hermes-agent) installation
 
 ## Installation
 
