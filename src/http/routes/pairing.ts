@@ -5,7 +5,6 @@ import { type RuntimePaths } from "../../runtime/paths.js";
 import { type Logger } from "pino";
 import { readJsonFile, writeJsonFile } from "../../storage/atomic-json.js";
 import { loadIdentity } from "../../identity/identity.js";
-import { loadConfig } from "../../config/config.js";
 import { createDeviceSession } from "../../security/credentials.js";
 import { LinkHttpError } from "../../core/errors.js";
 
@@ -111,9 +110,8 @@ export function createPairingRouter(options: {
     if (!sessionId || !claimToken) {
       throw new LinkHttpError(400, "pairing_claim_invalid", "session_id and claim_token are required");
     }
-    const [identity, config, localSession] = await Promise.all([
+    const [identity, localSession] = await Promise.all([
       loadIdentity(paths),
-      loadConfig(paths),
       readPairingSession(sessionId, paths),
     ]);
     if (!identity?.link_id) throw new LinkHttpError(409, "link_not_paired", "Hermes Link is not paired");
@@ -121,29 +119,12 @@ export function createPairingRouter(options: {
     if (isPairingSessionExpired(localSession)) throw new LinkHttpError(404, "pairing_session_expired", "Pairing session has expired");
     if (localSession.link_id !== identity.link_id) throw new LinkHttpError(409, "pairing_claim_mismatch", "Pairing claim does not match this Link");
 
-    // Verify with server
-    let verified: Record<string, unknown>;
-    try {
-      const resp = await fetch(`${config.serverBaseUrl.replace(/\/+$/u, "")}/api/v1/link-pairings/${sessionId}/claim/verify`, {
-        method: "POST",
-        headers: { accept: "application/json", "content-type": "application/json" },
-        body: JSON.stringify({ claim_token: claimToken, app_instance_id: readString(body, "app_instance_id", "appInstanceId") ?? undefined }),
-      });
-      if (!resp.ok) {
-        const errBody = await resp.json().catch(() => ({})) as Record<string, unknown>;
-        throw new LinkHttpError(resp.status, "pairing_claim_verify_failed", String(errBody.message ?? "Pairing claim verification failed"));
-      }
-      verified = await resp.json() as Record<string, unknown>;
-    } catch (err) {
-      if (err instanceof LinkHttpError) throw err;
-      throw new LinkHttpError(503, "pairing_server_unreachable", `Unable to verify pairing claim: ${(err as Error).message}`);
+    // Local verification: claim_token must match the session code
+    if (localSession.code !== claimToken) {
+      throw new LinkHttpError(409, "pairing_claim_mismatch", "Pairing claim token does not match");
     }
 
-    if (verified.ok !== true || verified.linkId !== identity.link_id) {
-      throw new LinkHttpError(409, "pairing_claim_mismatch", "Pairing claim does not match this Link");
-    }
-
-    const appInstanceId = typeof verified.appInstanceId === "string" ? verified.appInstanceId : null;
+    const appInstanceId = readString(body, "app_instance_id", "appInstanceId");
     const deviceLabel = readString(body, "device_label", "deviceLabel") ?? "HermesPilot App";
     const devicePlatform = readString(body, "device_platform", "devicePlatform") ?? "unknown";
     const session = await createDeviceSession(
