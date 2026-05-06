@@ -74,12 +74,17 @@ export async function runPairingPreflight(options: {
   await mkdir(options.paths.pairingDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
   await writeJsonFile(pairingSessionPath(sessionId, options.paths), session);
 
+  const lanUrls = (routes?.lanIps ?? []).map((ip) => `http://${ip}:${options.config.port}`);
+  const publicUrls = (routes?.publicIpv4s ?? []).map((ip) => `http://${ip}:${options.config.port}`);
+
   const pairingUrl = buildPairingUrl({
     linkId: options.identity.link_id ?? "",
     installId: options.identity.install_id,
     connectToken: token.token,
     port: options.config.port,
     localApiUrl: bestUrl,
+    lanUrls,
+    publicUrls,
     preferredUrls: session.preferred_urls,
   });
 
@@ -96,6 +101,8 @@ function buildPairingUrl(params: {
   connectToken: string;
   port: number;
   localApiUrl: string;
+  lanUrls: string[];
+  publicUrls: string[];
   preferredUrls: string[];
 }): string {
   const qs = new URLSearchParams({
@@ -106,6 +113,8 @@ function buildPairingUrl(params: {
     local_url: params.localApiUrl,
     preferred_urls: params.preferredUrls.join(","),
   });
+  if (params.lanUrls.length > 0) qs.set("lan_urls", params.lanUrls.join(","));
+  if (params.publicUrls.length > 0) qs.set("public_urls", params.publicUrls.join(","));
   return `hermesapp://pair?${qs.toString()}`;
 }
 
