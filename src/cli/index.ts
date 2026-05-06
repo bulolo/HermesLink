@@ -180,11 +180,12 @@ async function cmdPair(paths: ReturnType<typeof resolveRuntimePaths>): Promise<v
     return;
   }
   const result = await runPairingPreflight({ identity, config, paths });
-  const localPageUrl = buildLocalPairingPageUrl(config.port, result.connectToken);
+  const pageBase = result.bestUrl.replace(/\/+$/u, "");
+  const pageUrl = `${pageBase}/pair?connect_token=${encodeURIComponent(result.connectToken)}`;
   process.stdout.write("\n");
   qrcode.generate(result.pairingUrl, { small: true });
   process.stdout.write(`\nPairing URL:   ${result.pairingUrl}\n`);
-  process.stdout.write(`Pairing page:  ${localPageUrl}\n`);
+  process.stdout.write(`Pairing page:  ${pageUrl}\n`);
   process.stdout.write(`Connect token: ${result.connectToken}\n`);
 }
 

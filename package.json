@@ -36,7 +36,7 @@
     "prepack": "npm run build",
     "start": "node ./dist/cli/index.js",
     "test": "vitest",
-    "publish:npm": "npm publish --access public"
+    "publish:npm": "npm publish --access public --registry https://registry.npmjs.org"
   },
   "dependencies": {
     "@koa/cors": "^5.0.0",

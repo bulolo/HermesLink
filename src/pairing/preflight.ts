@@ -11,6 +11,7 @@ import { discoverRouteCandidates } from "../network/topology.js";
 export interface PairingPreflightResult {
   pairingUrl: string;
   connectToken: string;
+  bestUrl: string;
 }
 
 interface LocalPairingSession {
@@ -90,7 +91,7 @@ export async function runPairingPreflight(options: {
     await openSystemBrowser(pairingUrl).catch(() => undefined);
   }
 
-  return { pairingUrl, connectToken: token.token };
+  return { pairingUrl, connectToken: token.token, bestUrl };
 }
 
 function buildPairingUrl(params: {

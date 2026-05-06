@@ -173,8 +173,9 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
   app.use(statsRouter.allowedMethods());
 
   // Start HTTP server
+  const listenHost = process.env.HERMESLINK_LISTEN_HOST ?? "0.0.0.0";
   const server = await new Promise<Server>((resolve, reject) => {
-    const s = app.listen(config.port, "127.0.0.1", () => resolve(s));
+    const s = app.listen(config.port, listenHost, () => resolve(s));
     s.once("error", reject);
   });
 
