@@ -16,7 +16,7 @@ import {
 } from "../daemon/process.js";
 import { bootstrapWithRelay } from "../relay/bootstrap.js";
 import { startLinkService } from "../http/app.js";
-import { runPairingPreflight } from "../pairing/preflight.js";
+import { runPairingPreflight, buildLocalPairingPageUrl } from "../pairing/preflight.js";
 import { normalizeLanHost } from "../config/config.js";
 import { readRecentLogEntries, readRecentGatewayLogEntries } from "../runtime/logger.js";
 import { checkForUpdates } from "../link/updates.js";
@@ -180,9 +180,11 @@ async function cmdPair(paths: ReturnType<typeof resolveRuntimePaths>): Promise<v
     return;
   }
   const result = await runPairingPreflight({ identity, config, paths });
+  const localPageUrl = buildLocalPairingPageUrl(config.port, result.connectToken);
   process.stdout.write("\n");
   qrcode.generate(result.pairingUrl, { small: true });
   process.stdout.write(`\nPairing URL:   ${result.pairingUrl}\n`);
+  process.stdout.write(`Pairing page:  ${localPageUrl}\n`);
   process.stdout.write(`Connect token: ${result.connectToken}\n`);
 }
 
