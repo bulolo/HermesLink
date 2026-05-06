@@ -6,6 +6,7 @@ import { generateAppConnectToken } from "../security/app-connect-token.js";
 import { type RuntimePaths } from "../runtime/paths.js";
 import { writeJsonFile } from "../storage/atomic-json.js";
 import { openSystemBrowser } from "../runtime/browser.js";
+import { discoverRouteCandidates } from "../network/topology.js";
 
 export interface PairingPreflightResult {
   pairingUrl: string;
@@ -36,19 +37,36 @@ export async function runPairingPreflight(options: {
   openBrowser?: boolean;
 }): Promise<PairingPreflightResult> {
   const token = await generateAppConnectToken(options.paths);
-  const localApiUrl = `http://127.0.0.1:${options.config.port}`;
 
-  // Write a local pairing session so the /api/v1/pairing/claim route can verify it
+  // Discover accessible URLs (LAN + public IP)
+  const routes = options.identity.link_id
+    ? await discoverRouteCandidates({
+        port: options.config.port,
+        relayBaseUrl: options.config.relayBaseUrl,
+        linkId: options.identity.link_id,
+        installId: options.identity.install_id,
+        publicKeyPem: options.identity.public_key_pem,
+        configuredLanHost: options.config.lanHost,
+      }).catch(() => null)
+    : null;
+
+  // Pick best accessible URL: prefer LAN/public IP over 127.0.0.1
+  const localApiUrl = `http://127.0.0.1:${options.config.port}`;
+  const preferredUrls = (routes?.preferredUrls ?? []).filter(
+    (u) => !u.includes("/api/v1/relay/"),
+  );
+  const bestUrl = preferredUrls[0] ?? localApiUrl;
+
   const sessionId = `ps_${token.token.slice(0, 16)}`;
   const session: LocalPairingSession = {
     session_id: sessionId,
     code: token.token,
     link_id: options.identity.link_id ?? "",
     display_name: "Hermes Link",
-    local_api_url: localApiUrl,
+    local_api_url: bestUrl,
     server_base_url: options.config.serverBaseUrl,
     relay_base_url: options.config.relayBaseUrl,
-    preferred_urls: [localApiUrl],
+    preferred_urls: preferredUrls.length > 0 ? preferredUrls : [localApiUrl],
     created_at: new Date().toISOString(),
     expires_at: token.expiresAt,
   };
@@ -61,7 +79,8 @@ export async function runPairingPreflight(options: {
     installId: options.identity.install_id,
     connectToken: token.token,
     port: options.config.port,
-    localApiUrl,
+    localApiUrl: bestUrl,
+    preferredUrls: session.preferred_urls,
   });
 
   if (options.openBrowser !== false) {
@@ -77,6 +96,7 @@ function buildPairingUrl(params: {
   connectToken: string;
   port: number;
   localApiUrl: string;
+  preferredUrls: string[];
 }): string {
   const qs = new URLSearchParams({
     link_id: params.linkId,
@@ -84,6 +104,7 @@ function buildPairingUrl(params: {
     connect_token: params.connectToken,
     port: String(params.port),
     local_url: params.localApiUrl,
+    preferred_urls: params.preferredUrls.join(","),
   });
   return `hermesapp://pair?${qs.toString()}`;
 }
