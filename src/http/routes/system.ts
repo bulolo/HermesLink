@@ -9,7 +9,7 @@ import { detectRuntimeEnvironment } from "../../network/environment.js";
 import { readLinkState } from "../../link/state.js";
 import { checkForUpdates, dismissUpdate } from "../../link/updates.js";
 import { readRecentLogEntries, readRecentGatewayLogEntries } from "../../runtime/logger.js";
-import { requireAuth } from "../auth.js";
+import { authenticateRequest } from "../auth.js";
 import { parseJsonBody } from "../request.js";
 
 export function createSystemRouter(options: {
@@ -18,7 +18,11 @@ export function createSystemRouter(options: {
   paths: RuntimePaths;
 }): Router {
   const router = new Router({ prefix: "/api/v1/system" });
-  const auth = requireAuth(options.paths);
+  const paths = options.paths;
+  const auth = async (ctx: Context, next: () => Promise<void>) => {
+    await authenticateRequest(ctx, paths);
+    await next();
+  };
 
   router.get("/status", async (ctx: Context) => {
     const state = await readLinkState(options.paths);

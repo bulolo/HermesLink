@@ -1,7 +1,7 @@
 import Router from "@koa/router";
-import type { Context } from "koa";
+import type { Context, Next } from "koa";
 import type { Database } from "better-sqlite3";
-import { requireAuth } from "../auth.js";
+import { authenticateRequest } from "../auth.js";
 import { type RuntimePaths } from "../../runtime/paths.js";
 
 interface ConversationStatRow {
@@ -29,7 +29,11 @@ export function createStatisticsRouter(options: {
   paths: RuntimePaths;
 }): Router {
   const router = new Router({ prefix: "/api/v1/statistics" });
-  const auth = requireAuth(options.paths);
+  const paths = options.paths;
+  const auth = async (ctx: Context, next: () => Promise<void>) => {
+    await authenticateRequest(ctx, paths);
+    await next();
+  };
 
   router.get("/conversations", auth, (ctx: Context) => {
     const { from, to, profile } = ctx.query;

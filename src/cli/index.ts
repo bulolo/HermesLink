@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 import { mkdir } from "fs/promises";
-import path from "path";
 import qrcode from "qrcode-terminal";
-import { LINK_COMMAND, LINK_VERSION, LINK_DEFAULT_PORT } from "../constants.js";
+import { LINK_COMMAND, LINK_VERSION } from "../constants.js";
 import { loadConfig, saveConfig } from "../config/config.js";
-import { ensureIdentity, getIdentityStatus, loadIdentity, saveAssignedLinkId } from "../identity/identity.js";
+import { ensureIdentity, loadIdentity, saveAssignedLinkId } from "../identity/identity.js";
 import { resolveRuntimePaths } from "../runtime/paths.js";
-import { resolveLanguage, translate, detectSystemLanguage } from "../i18n.js";
 import { enableAutostart, disableAutostart, getAutostartStatus } from "../autostart/autostart.js";
-import { discoverLanIps } from "../network/topology.js";
 import { detectRuntimeEnvironment } from "../network/environment.js";
 import {
   getDaemonStatus,

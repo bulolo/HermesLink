@@ -2,6 +2,7 @@ import Koa from "koa";
 import bodyParser from "koa-bodyparser";
 import cors from "@koa/cors";
 import Router from "@koa/router";
+import { mkdir } from "fs/promises";
 import type { Server } from "http";
 import { type LinkConfig } from "../config/config.js";
 import { type LinkIdentity } from "../identity/identity.js";
@@ -9,11 +10,24 @@ import { type RuntimePaths } from "../runtime/paths.js";
 import { createLogger } from "../runtime/logger.js";
 import { createSystemRouter } from "./routes/system.js";
 import { createStatisticsRouter } from "./routes/statistics.js";
+import { createBootstrapRouter } from "./routes/bootstrap.js";
+import { createAuthRouter } from "./routes/auth.js";
+import { createDevicesRouter } from "./routes/devices.js";
+import { createConversationsRouter } from "./routes/conversations.js";
+import { createPairingRouter } from "./routes/pairing.js";
 import { RelayClient } from "../relay/relay-client.js";
 import { discoverRouteCandidates } from "../network/topology.js";
 import { updateNetworkReportState } from "../link/state.js";
 import { openSqliteDatabase } from "../storage/sqlite.js";
 import { initLinkDatabase } from "../storage/link-database.js";
+import { ConversationService } from "../conversations/service.js";
+import { LinkHttpError } from "../core/errors.js";
+import { readRecentLogEntries, readRecentGatewayLogEntries } from "../runtime/logger.js";
+import { authenticateRequest } from "./auth.js";
+import { LINK_VERSION } from "../constants.js";
+import { listHermesProfiles } from "../hermes/gateway.js";
+import { readDeviceSummary } from "../security/credentials.js";
+import { checkForUpdates } from "../link/updates.js";
 
 export interface LinkServiceOptions {
   config: LinkConfig;
@@ -32,8 +46,14 @@ export interface LinkService {
 export async function startLinkService(options: LinkServiceOptions): Promise<LinkService> {
   const { config, identity, paths, relayToken } = options;
   const logger = createLogger({ paths, fileName: "link.log", level: config.logLevel });
+
   await initLinkDatabase(paths);
   const db = openSqliteDatabase(paths.databaseFile, { timeout: 5000 });
+  await mkdir(paths.conversationsDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
+  await mkdir(paths.blobsDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
+  await mkdir(paths.pairingDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
+
+  const conversations = new ConversationService(paths);
 
   const app = new Koa();
   app.use(cors({ origin: "*" }));
@@ -44,10 +64,18 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
     try {
       await next();
     } catch (err) {
-      const error = err as Error & { status?: number; statusCode?: number };
+      const error = err as Error & { status?: number; statusCode?: number; code?: string };
       ctx.status = error.status ?? error.statusCode ?? 500;
-      ctx.body = { error: error.message ?? "Internal server error" };
-      logger.error({ path: ctx.path, status: ctx.status, err: error.message }, "Request error");
+      ctx.body = {
+        ok: false,
+        error: {
+          code: error.code ?? "internal_error",
+          message: error.message ?? "Internal server error",
+        },
+      };
+      if (ctx.status >= 500) {
+        logger.error({ path: ctx.path, status: ctx.status, err: error.message }, "Request error");
+      }
     }
   });
 
@@ -60,13 +88,86 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
     ctx.body = buildPairingPage({ port: config.port, connectToken });
   });
 
+  // Main status route
+  rootRouter.get("/api/v1/status", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.set("cache-control", "no-store");
+    const [devices, profiles, linkUpdate] = await Promise.all([
+      readDeviceSummary(paths),
+      listHermesProfiles().catch(() => [] as string[]),
+      checkForUpdates({ relayBaseUrl: config.relayBaseUrl, paths }).catch(() => null),
+    ]);
+    ctx.body = {
+      ok: true,
+      version: LINK_VERSION,
+      paired: Boolean(identity.link_id),
+      link_id: identity.link_id ?? null,
+      port: config.port,
+      link: {
+        state: "online",
+        version: LINK_VERSION,
+        update_available: linkUpdate?.availableVersion != null,
+      },
+      hermes: {
+        local_version: null,
+        update_available: false,
+      },
+      gateway: { state: "unknown", issue: null },
+      api_server: { state: "unknown", issue: null },
+      devices,
+      profiles: { total: profiles.length },
+    };
+  });
+
+  // Logs route
+  rootRouter.get("/api/v1/logs", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    const source = typeof ctx.query.source === "string" ? ctx.query.source : "link";
+    const limit = typeof ctx.query.limit === "string" ? Number.parseInt(ctx.query.limit, 10) : 50;
+    ctx.set("cache-control", "no-store");
+    ctx.body = {
+      ok: true,
+      source,
+      logs: source === "gateway"
+        ? await readRecentGatewayLogEntries({ paths, limit })
+        : await readRecentLogEntries({ paths, limit }),
+    };
+  });
+
   app.use(rootRouter.routes());
   app.use(rootRouter.allowedMethods());
 
+  // Bootstrap (no auth required)
+  const bootstrapRouter = createBootstrapRouter({ paths });
+  app.use(bootstrapRouter.routes());
+  app.use(bootstrapRouter.allowedMethods());
+
+  // Auth routes
+  const authRouter = createAuthRouter({ paths, logger });
+  app.use(authRouter.routes());
+  app.use(authRouter.allowedMethods());
+
+  // Pairing routes
+  const pairingRouter = createPairingRouter({ paths, logger });
+  app.use(pairingRouter.routes());
+  app.use(pairingRouter.allowedMethods());
+
+  // Devices routes
+  const devicesRouter = createDevicesRouter({ paths, logger });
+  app.use(devicesRouter.routes());
+  app.use(devicesRouter.allowedMethods());
+
+  // Conversations routes
+  const conversationsRouter = createConversationsRouter({ paths, conversations, logger });
+  app.use(conversationsRouter.routes());
+  app.use(conversationsRouter.allowedMethods());
+
+  // System routes
   const systemRouter = createSystemRouter({ config, identity, paths });
   app.use(systemRouter.routes());
   app.use(systemRouter.allowedMethods());
 
+  // Statistics routes
   const statsRouter = createStatisticsRouter({ db, paths });
   app.use(statsRouter.routes());
   app.use(statsRouter.allowedMethods());
@@ -155,14 +256,12 @@ function buildPairingPage(options: { port: number; connectToken: string }): stri
     async function pair() {
       const token = document.getElementById('token').textContent;
       try {
-        const res = await fetch('http://127.0.0.1:${options.port}/api/v1/system/status', {
-          headers: { 'x-hermeslink-connect-token': token }
-        });
+        const res = await fetch('http://127.0.0.1:${options.port}/api/v1/bootstrap');
         if (res.ok) {
           document.getElementById('status').style.display = 'block';
         }
       } catch (e) {
-        alert('Pairing failed: ' + e.message);
+        alert('Connection failed: ' + e.message);
       }
     }
   </script>
