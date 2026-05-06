@@ -1,6 +1,6 @@
 {
   "name": "@bulolo/hermes-link",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Hermes Link companion service and CLI for connecting hermes-agent through zhiji",
   "license": "MIT",
   "type": "module",

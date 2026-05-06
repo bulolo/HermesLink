@@ -255,14 +255,36 @@ function buildPairingPage(options: { port: number; connectToken: string }): stri
   </div>
   <script>
     async function pair() {
-      const token = document.getElementById('token').textContent;
+      const token = document.getElementById('token').textContent.trim();
+      const btn = document.querySelector('button');
+      btn.disabled = true;
+      btn.textContent = 'Pairing...';
       try {
-        const res = await fetch('http://127.0.0.1:${options.port}/api/v1/bootstrap');
-        if (res.ok) {
+        const res = await fetch('/api/v1/auth/device-session', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            device_label: navigator.userAgent.slice(0, 64),
+            device_platform: 'web'
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.access_token) {
           document.getElementById('status').style.display = 'block';
+          document.getElementById('status').innerHTML =
+            'Paired! Access token:<br><code style="font-size:0.75rem;word-break:break-all">' +
+            data.access_token.token + '</code>';
+          btn.textContent = 'Paired';
+        } else {
+          throw new Error(data.error?.message || JSON.stringify(data));
         }
       } catch (e) {
-        alert('Connection failed: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Pair This Device';
+        alert('Pairing failed: ' + e.message);
       }
     }
   </script>
