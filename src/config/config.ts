@@ -77,31 +77,20 @@ export function parseLogLevel(value: unknown): LogLevel | null {
 }
 
 export function normalizeLanHost(value: unknown): string | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  if (typeof value !== "string") {
-    return null;
-  }
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") return null;
   const host = value.trim().replace(/^\[/u, "").replace(/\]$/u, "");
-  if (!host) {
-    return null;
-  }
-  if (!isUsableLanIpv4(host)) {
-    return null;
-  }
+  if (!host) return null;
+  if (!isValidHostIpv4(host)) return null;
   return host;
 }
 
-function isUsableLanIpv4(value: string): boolean {
+function isValidHostIpv4(value: string): boolean {
   const parts = value.split(".").map((part) => Number.parseInt(part, 10));
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
     return false;
   }
-  const [first, second, , fourth] = parts;
-  const privateRange =
-    first === 10 ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168);
-  return privateRange && fourth !== 0 && fourth !== 255;
+  const [, , , fourth] = parts;
+  // Reject network address and broadcast
+  return fourth !== 0 && fourth !== 255;
 }
