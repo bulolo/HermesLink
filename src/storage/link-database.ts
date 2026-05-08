@@ -31,7 +31,7 @@ export interface ConversationStatsRecord {
 
 export interface RunUsageFactRecord {
   runId: string;
-  conversationId: string;
+  conversationId: string | null;
   profileUid?: string | null;
   profileNameSnapshot?: string | null;
   profile?: string | null;

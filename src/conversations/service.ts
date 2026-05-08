@@ -28,8 +28,71 @@ import {
   deleteUnreferencedBlob,
   type BlobManifest,
 } from "./blobs.js";
-import { initLinkDatabase } from "../storage/link-database.js";
+import {
+  initLinkDatabase,
+  upsertConversationStats,
+  replaceRunUsageFactsForConversation,
+  type ConversationStatsRecord,
+  type RunUsageFactRecord,
+} from "../storage/link-database.js";
 import { openSqliteDatabase } from "../storage/sqlite.js";
+
+function buildConversationStats(manifest: ConversationManifest, snapshot: ConversationSnapshot): NonNullable<ConversationManifest["stats"]> {
+  const agentRuns = snapshot.runs.filter(r => r.kind === "agent");
+  const hasUsage = agentRuns.some(r => r.usage);
+  const prev = manifest.stats;
+  const inputTokens = hasUsage ? agentRuns.reduce((t, r) => t + (r.usage?.input_tokens ?? 0), 0) : prev?.input_tokens ?? 0;
+  const outputTokens = hasUsage ? agentRuns.reduce((t, r) => t + (r.usage?.output_tokens ?? 0), 0) : prev?.output_tokens ?? 0;
+  const totalTokens = hasUsage
+    ? agentRuns.reduce((t, r) => t + (r.usage?.total_tokens ?? (r.usage?.input_tokens ?? 0) + (r.usage?.output_tokens ?? 0)), 0)
+    : prev?.total_tokens ?? inputTokens + outputTokens;
+  const latestRun = agentRuns
+    .filter(r => r.completed_at)
+    .sort((a, b) => (b.completed_at ?? "").localeCompare(a.completed_at ?? ""))[0];
+  const updatedAt = latestRun?.completed_at ?? prev?.updated_at ?? manifest.updated_at;
+  const profileNameSnapshot = latestRun?.profile_name_snapshot ?? latestRun?.profile ?? prev?.profile_name_snapshot ?? manifest.profile;
+  return {
+    input_tokens: inputTokens,
+    output_tokens: outputTokens,
+    total_tokens: totalTokens,
+    message_count: snapshot.messages.length || prev?.message_count || 0,
+    run_count: agentRuns.length || prev?.run_count || 0,
+    profile_uid: latestRun?.profile_uid ?? prev?.profile_uid ?? manifest.profile_uid ?? null,
+    profile_name_snapshot: profileNameSnapshot ?? null,
+    profile: profileNameSnapshot ?? null,
+    model: latestRun?.model ?? prev?.model ?? null,
+    provider: latestRun?.provider ?? prev?.provider ?? null,
+    context_window: latestRun?.context_window ?? prev?.context_window ?? null,
+    updated_at: updatedAt,
+  };
+}
+
+function buildRunUsageFacts(manifest: ConversationManifest, snapshot: ConversationSnapshot): RunUsageFactRecord[] {
+  return snapshot.runs
+    .filter(r => r.kind === "agent" && Boolean(r.completed_at))
+    .map(run => {
+      const usage = run.usage;
+      const profileNameSnapshot = run.profile_name_snapshot ?? run.profile ?? manifest.stats?.profile_name_snapshot ?? manifest.profile;
+      const messageIds = new Set([run.trigger_message_id, run.assistant_message_id].filter(Boolean));
+      const messageCount = snapshot.messages.filter(m => messageIds.has(m.id)).length;
+      return {
+        runId: run.id,
+        conversationId: manifest.id,
+        profileUid: run.profile_uid ?? manifest.stats?.profile_uid ?? manifest.profile_uid ?? null,
+        profileNameSnapshot: profileNameSnapshot ?? null,
+        profile: profileNameSnapshot ?? null,
+        model: run.model ?? manifest.stats?.model ?? null,
+        provider: run.provider ?? manifest.stats?.provider ?? null,
+        inputTokens: usage?.input_tokens ?? 0,
+        outputTokens: usage?.output_tokens ?? 0,
+        totalTokens: usage?.total_tokens ?? (usage?.input_tokens ?? 0) + (usage?.output_tokens ?? 0),
+        messageCount,
+        startedAt: run.started_at,
+        completedAt: run.completed_at ?? run.started_at,
+        updatedAt: run.completed_at ?? run.started_at,
+      };
+    });
+}
 
 const conversationLocks = new Map<string, Promise<unknown>>();
 
@@ -55,6 +118,41 @@ export class ConversationService extends EventEmitter {
     super();
     this.setMaxListeners(200);
     this.paths = paths;
+  }
+
+  async persistConversationStats(conversationId: string, snapshot?: ConversationSnapshot): Promise<void> {
+    const manifest = await readManifest(this.paths, conversationId);
+    if (!manifest) return;
+    const snap = snapshot ?? await readSnapshot(this.paths, conversationId);
+    const stats = buildConversationStats(manifest, snap);
+    await writeManifest(this.paths, { ...manifest, stats });
+    const statsRecord: ConversationStatsRecord = {
+      conversationId: manifest.id,
+      kind: manifest.kind,
+      title: manifest.title,
+      status: manifest.status,
+      hermesSessionId: manifest.hermes_session_id ?? "",
+      profileUid: stats.profile_uid ?? null,
+      profileNameSnapshot: stats.profile_name_snapshot ?? null,
+      profile: stats.profile ?? null,
+      model: stats.model ?? null,
+      provider: stats.provider ?? null,
+      contextWindow: stats.context_window ?? null,
+      inputTokens: stats.input_tokens,
+      outputTokens: stats.output_tokens,
+      totalTokens: stats.total_tokens,
+      messageCount: stats.message_count,
+      runCount: stats.run_count,
+      createdAt: manifest.created_at,
+      updatedAt: manifest.updated_at,
+      deletedAt: manifest.deleted_at ?? null,
+      statsUpdatedAt: stats.updated_at,
+    };
+    await upsertConversationStats(this.paths, statsRecord);
+    const usageFacts = buildRunUsageFacts(manifest, snap);
+    if (usageFacts.length > 0) {
+      await replaceRunUsageFactsForConversation(this.paths, conversationId, usageFacts);
+    }
   }
 
   subscribeAll(handler: (event: ConversationServiceEvent) => void): () => void {
@@ -306,6 +404,7 @@ export class ConversationService extends EventEmitter {
       await writeSnapshot(this.paths, conversationId, snapshot);
       await this.appendAndEmit(conversationId, { type: "run.cancelled", run_id: runId, payload: { run } }, manifest);
       await writeManifest(this.paths, manifest);
+      await this.persistConversationStats(conversationId, snapshot).catch(() => undefined);
       return { conversation_id: conversationId, run: { id: run.id, status: run.status }, last_event_seq: manifest.last_event_seq };
     });
   }
