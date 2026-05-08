@@ -27,7 +27,7 @@ export async function authenticateRequest(
     return { kind: "device", device };
   }
 
-  if (token.startsWith("hpat_")) {
+  if (token.startsWith("hlat_")) {
     throw new LinkHttpError(401, "device_access_token_invalid", "Device access token is invalid or expired");
   }
 

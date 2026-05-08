@@ -2,7 +2,7 @@ import { randomBytes, randomUUID, timingSafeEqual, createHash } from "crypto";
 import { type RuntimePaths, resolveRuntimePaths } from "../runtime/paths.js";
 import { readJsonFile, writeJsonFile } from "../storage/atomic-json.js";
 
-const ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000; // 15 min
+const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REFRESH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const DEVICE_SEEN_WRITE_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -137,8 +137,8 @@ async function rotateDeviceSession(
   now: Date,
   paths: RuntimePaths,
 ): Promise<DeviceSession> {
-  const accessToken = randomToken("hpat_");
-  const refreshToken = randomToken("hprt_");
+  const accessToken = randomToken("hlat_");
+  const refreshToken = randomToken("hlrt_");
   device.access_token_hash = sha256(accessToken);
   device.access_expires_at = new Date(now.getTime() + ACCESS_TOKEN_TTL_MS).toISOString();
   device.refresh_token_hash = sha256(refreshToken);

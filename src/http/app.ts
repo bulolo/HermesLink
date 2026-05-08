@@ -345,7 +345,7 @@ async function buildPairingPage(options: {
           showStatus('success', '配对成功！');
           const results = document.getElementById('results');
           results.innerHTML = \`
-            <div class="result-row"><span class="tag">access_token · 15min</span><div class="mono" onclick="copyText(this)">\${data.access_token.token}</div></div>
+            <div class="result-row"><span class="tag">access_token · 2h</span><div class="mono" onclick="copyText(this)">\${data.access_token.token}</div></div>
             <div class="result-row" style="margin-top:0.5rem"><span class="tag">refresh_token · 90days</span><div class="mono" onclick="copyText(this)">\${data.refresh_token.token}</div></div>
           \`;
         } else {

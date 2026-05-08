@@ -34,7 +34,7 @@ Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http:/
 所有 API 请求分为两类：
 
 - **无需鉴权**：`/pair`、`/api/v1/bootstrap`
-- **需要 Bearer Token**：其余接口均需 `Authorization: Bearer hpat_xxx`，通过配对流程获取
+- **需要 Bearer Token**：其余接口均需 `Authorization: Bearer hlat_xxx`，通过配对流程获取
 
 ## 为什么需要 HermesLink？
 
@@ -215,7 +215,7 @@ curl -s -X POST http://localhost:18642/api/v1/auth/device-session \
 
 ---
 
-> **Token 有效期**：access_token 15 分钟，refresh_token 90 天。access_token 过期后用 refresh_token 换新，无需重新配对。
+> **Token 有效期**：access_token 2 小时，refresh_token 90 天。access_token 过期后用 refresh_token 换新，无需重新配对。
 
 ## 命令一览
 
@@ -248,15 +248,15 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 ## API 参考
 
-服务默认监听 `http://0.0.0.0:18642`。所有需要鉴权的接口均使用 Bearer Token（`hpat_` 前缀）。
+服务默认监听 `http://0.0.0.0:18642`。所有需要鉴权的接口均使用 Bearer Token（`hlat_` 前缀）。
 
 ### Token 说明
 
 | Token | 前缀 | 有效期 | 用途 |
 |-------|------|--------|------|
 | Connect Token | 无前缀（base64url）| 5 分钟，一次性 | 兑换 access_token |
-| Access Token | `hpat_` | 15 分钟 | 所有 API 请求 |
-| Refresh Token | `hprt_` | 90 天 | 刷新 access_token |
+| Access Token | `hlat_` | 2 小时 | 所有 API 请求 |
+| Refresh Token | `hlrt_` | 90 天 | 刷新 access_token |
 
 ### 无需鉴权
 
@@ -267,7 +267,7 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 ### 认证 / 设备
 
-所有以下接口需要 Header：`Authorization: Bearer hpat_xxx`
+所有以下接口需要 Header：`Authorization: Bearer hlat_xxx`
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
@@ -276,7 +276,7 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 | POST | `/api/v1/auth/refresh` | 用 refresh_token 换新 access_token |
 | POST | `/api/v1/auth/logout` | 撤销 refresh_token |
 
-**POST `/api/v1/auth/device-session`** 的 Authorization 头需放 **connect_token**（不是 hpat_），Body：
+**POST `/api/v1/auth/device-session`** 的 Authorization 头需放 **connect_token**（不是 hlat_），Body：
 
 ```json
 {
@@ -292,15 +292,15 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 {
   "ok": true,
   "device": { "device_id": "dev_xxx", "label": "我的设备", "platform": "ios" },
-  "access_token":  { "token": "hpat_xxx", "expires_at": "2026-05-08T13:00:00Z" },
-  "refresh_token": { "token": "hprt_xxx", "expires_at": "2026-08-06T12:00:00Z" }
+  "access_token":  { "token": "hlat_xxx", "expires_at": "2026-05-08T13:00:00Z" },
+  "refresh_token": { "token": "hlrt_xxx", "expires_at": "2026-08-06T12:00:00Z" }
 }
 ```
 
 **POST `/api/v1/auth/refresh`** Body：
 
 ```json
-{ "refresh_token": "hprt_xxx" }
+{ "refresh_token": "hlrt_xxx" }
 ```
 
 ### 配对

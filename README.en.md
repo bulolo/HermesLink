@@ -34,7 +34,7 @@ Hermes Link is a background HTTP service running on your local machine, listenin
 All API requests fall into two categories:
 
 - **No auth required**: `/pair`, `/api/v1/bootstrap`
-- **Bearer Token required**: all other endpoints require `Authorization: Bearer hpat_xxx`, obtained through the pairing flow
+- **Bearer Token required**: all other endpoints require `Authorization: Bearer hlat_xxx`, obtained through the pairing flow
 
 ## Why HermesLink?
 
@@ -212,7 +212,7 @@ curl -s -X POST http://localhost:18642/api/v1/auth/device-session \
 
 ---
 
-> **Token expiry**: access_token lasts 15 minutes, refresh_token lasts 90 days. When the access_token expires, use the refresh_token to get a new one — no need to re-pair.
+> **Token expiry**: access_token lasts 2 hours, refresh_token lasts 90 days. When the access_token expires, use the refresh_token to get a new one — no need to re-pair.
 
 ## Commands
 
@@ -245,15 +245,15 @@ Config file is at `~/.hermeslink/config.json`.
 
 ## API Reference
 
-Service listens on `http://0.0.0.0:18642` by default. All authenticated endpoints use a Bearer Token with the `hpat_` prefix.
+Service listens on `http://0.0.0.0:18642` by default. All authenticated endpoints use a Bearer Token with the `hlat_` prefix.
 
 ### Token Types
 
 | Token | Prefix | Expiry | Purpose |
 |-------|--------|--------|---------|
 | Connect Token | none (base64url) | 5 min, one-time | Exchange for access_token |
-| Access Token | `hpat_` | 15 min | All API requests |
-| Refresh Token | `hprt_` | 90 days | Refresh access_token |
+| Access Token | `hlat_` | 15 min | All API requests |
+| Refresh Token | `hlrt_` | 90 days | Refresh access_token |
 
 ### No Auth Required
 
@@ -264,7 +264,7 @@ Service listens on `http://0.0.0.0:18642` by default. All authenticated endpoint
 
 ### Auth / Devices
 
-All endpoints below require `Authorization: Bearer hpat_xxx`
+All endpoints below require `Authorization: Bearer hlat_xxx`
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -273,7 +273,7 @@ All endpoints below require `Authorization: Bearer hpat_xxx`
 | POST | `/api/v1/auth/refresh` | Refresh access_token using refresh_token |
 | POST | `/api/v1/auth/logout` | Revoke refresh_token |
 
-**POST `/api/v1/auth/device-session`** — Authorization header takes the **connect_token** (not hpat_). Body:
+**POST `/api/v1/auth/device-session`** — Authorization header takes the **connect_token** (not hlat_). Body:
 
 ```json
 {
@@ -289,15 +289,15 @@ Response:
 {
   "ok": true,
   "device": { "device_id": "dev_xxx", "label": "My Device", "platform": "ios" },
-  "access_token":  { "token": "hpat_xxx", "expires_at": "2026-05-08T13:00:00Z" },
-  "refresh_token": { "token": "hprt_xxx", "expires_at": "2026-08-06T12:00:00Z" }
+  "access_token":  { "token": "hlat_xxx", "expires_at": "2026-05-08T13:00:00Z" },
+  "refresh_token": { "token": "hlrt_xxx", "expires_at": "2026-08-06T12:00:00Z" }
 }
 ```
 
 **POST `/api/v1/auth/refresh`** Body:
 
 ```json
-{ "refresh_token": "hprt_xxx" }
+{ "refresh_token": "hlrt_xxx" }
 ```
 
 ### Pairing
