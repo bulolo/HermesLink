@@ -11,6 +11,45 @@ Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http:/
 - **无需鉴权**：`/pair`、`/api/v1/bootstrap`
 - **需要 Bearer Token**：其余接口均需 `Authorization: Bearer hpat_xxx`，通过配对流程获取
 
+## 为什么需要 HermesLink？
+
+Hermes Agent 内置了一个 API Server（端口 8642），但它只提供 **12 个接口**，职责非常单一：
+
+| 类别 | Hermes Agent API Server |
+|------|------------------------|
+| Agent 执行 | `POST /v1/runs`、事件流、取消 |
+| 模型列表 | `GET /v1/models` |
+| 定时任务 CRUD | `GET/POST/PATCH/DELETE /api/jobs` |
+| 健康检查 | `GET /api/health` |
+
+认证方式是单一静态 Key，仅监听 `127.0.0.1`，没有设备管理、没有对话存储、没有配对流程。它的定位是**本机进程间通信**，不面向客户端直接暴露。
+
+HermesLink 在此基础上提供 **97 个接口**，补全了面向客户端所需的一切：
+
+| 能力 | 说明 |
+|------|------|
+| **设备配对与多设备鉴权** | 二维码 / 扫码配对，每台设备独立 access token（15 min）+ refresh token（90 天），可单独吊销 |
+| **对话与附件本地存储** | 对话历史、消息、文件附件全部存储在本机，不经过外部服务器 |
+| **Profile & Memory 管理** | 多 Profile 支持，每个 Profile 独立的记忆（USER.md / MEMORY.md）、权限、技能开关、工具配置 |
+| **使用统计** | Token 用量、对话数等本地统计，支持按日期/模型/Profile 筛选 |
+| **工具调用审批** | 敏感操作的 approve / deny 流程，让 App 侧可介入确认 |
+| **更新与系统管理** | Hermes 和 Link 自身的更新检查、触发、自启动（launchd / systemd）|
+| **局域网 / 公网直连** | 监听 `0.0.0.0`，客户端通过 LAN 或内网穿透直连，数据不出本机 |
+
+**如果你只需要本机脚本调用 Hermes Agent，直接用它的 API Server（8642）即可。如果你要开发移动 App、多设备接入，或需要对话存储 / Profile 管理等完整功能，HermesLink 是必要的接入层。**
+
+## 工作原理
+
+```
+客户端（浏览器 / App）
+   │
+   └──→ hermeslink (本机, 端口 18642)  ← 鉴权、数据存储、设备管理
+              │
+              └──→ Hermes Agent API Server (127.0.0.1:8642)  ← 模型推理
+```
+
+所有计算和数据均在本机完成，不经过外部服务器。
+
 ## 环境要求
 
 ### 1. Node.js >= 20.0.0
@@ -267,8 +306,6 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 |------|------|------|
 | GET | `/api/v1/status` | 服务整体状态（版本、设备数、profiles 数量等） |
 | GET | `/api/v1/logs` | 最近日志（`?source=link\|gateway&limit=50`） |
-| GET | `/api/v1/link/update-check` | 检查 Link 版本更新 |
-| GET | `/api/v1/hermes/update-check` | 检查 Hermes Agent 版本更新 |
 
 ### 设备列表
 
@@ -298,6 +335,10 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 | POST | `/api/v1/conversations/:id/ack` | 确认已读 |
 | POST | `/api/v1/conversations/clear-plans` | 创建批量清理计划 |
 | GET | `/api/v1/conversations/clear-plans/:planId` | 查询清理计划状态 |
+| POST | `/api/v1/conversations/clear-plans/:planId/execute` | 执行清理计划 |
+| POST | `/api/v1/conversations/:id/runs/:runId/cancel` | 取消对话内的某次执行 |
+| POST | `/api/v1/conversations/:id/approvals/:approvalId/approve` | 审批工具调用（允许） |
+| POST | `/api/v1/conversations/:id/approvals/:approvalId/deny` | 审批工具调用（拒绝） |
 | POST | `/api/v1/conversations/:id/blobs` | 上传附件 |
 | GET | `/api/v1/conversations/:id/blobs/:blobId` | 下载附件 |
 | DELETE | `/api/v1/conversations/:id/blobs/:blobId` | 删除附件 |
@@ -318,10 +359,6 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 | POST | `/api/v1/model-configs` | 新增全局模型配置 |
 | PATCH | `/api/v1/model-configs/defaults` | 更新默认模型配置 |
 | DELETE | `/api/v1/model-configs` | 删除全局模型配置 |
-| GET | `/api/v1/profiles/:name/model-configs` | 列出指定 Profile 的模型配置 |
-| POST | `/api/v1/profiles/:name/model-configs` | 新增 Profile 的模型配置 |
-| PATCH | `/api/v1/profiles/:name/model-configs/defaults` | 更新 Profile 默认模型 |
-| DELETE | `/api/v1/profiles/:name/model-configs` | 删除 Profile 的模型配置 |
 
 ### Profiles
 
@@ -347,20 +384,12 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 | PATCH | `/api/v1/profiles/:name/memory/provider` | 切换记忆 Provider（`{"provider":"built-in"}`）|
 | GET | `/api/v1/profiles/:name/permissions` | 查看权限配置 |
 | PATCH | `/api/v1/profiles/:name/permissions` | 更新权限配置 |
-| GET | `/api/v1/profiles/:name/tool-configs/:toolKey` | 查看工具配置（如 `Bash`、`Computer`）|
-| PATCH | `/api/v1/profiles/:name/tool-configs/:toolKey` | 更新工具配置 |
+| GET | `/api/v1/profiles/:name/tool-configs/:toolKey` | 查看工具配置（toolKey：`web` / `image_gen` / `stt` / `tts` / `messaging` / `homeassistant` / `rl`）|
+| PATCH | `/api/v1/profiles/:name/tool-configs/:toolKey` | 更新工具配置（同上 toolKey）|
 | GET | `/api/v1/profiles/:name/model-configs` | 列出 Profile 的模型配置 |
 | POST | `/api/v1/profiles/:name/model-configs` | 新增 Profile 的模型配置 |
 | PATCH | `/api/v1/profiles/:name/model-configs/defaults` | 更新 Profile 默认模型 |
 | DELETE | `/api/v1/profiles/:name/model-configs` | 删除 Profile 的模型配置 |
-| GET | `/api/v1/profiles/:name/cron-jobs` | 列出 Profile 的定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs` | 创建 Profile 的定时任务 |
-| GET | `/api/v1/profiles/:name/cron-jobs/:jobId` | 查看定时任务详情 |
-| PATCH | `/api/v1/profiles/:name/cron-jobs/:jobId` | 更新定时任务 |
-| DELETE | `/api/v1/profiles/:name/cron-jobs/:jobId` | 删除定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/pause` | 暂停定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/resume` | 恢复定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/run` | 立即执行定时任务 |
 
 记忆 `target` 字段：`"memory"`（Agent 笔记，MEMORY.md）或 `"user"`（用户信息，USER.md）。
 
@@ -368,7 +397,15 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/cron-jobs` | 列出所有 Profile 的定时任务汇总 |
+| GET | `/api/v1/cron-jobs` | 汇总列出所有 Profile 的定时任务 |
+| GET | `/api/v1/profiles/:name/cron-jobs` | 列出指定 Profile 的定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs` | 创建定时任务 |
+| GET | `/api/v1/profiles/:name/cron-jobs/:jobId` | 查看定时任务详情 |
+| PATCH | `/api/v1/profiles/:name/cron-jobs/:jobId` | 更新定时任务 |
+| DELETE | `/api/v1/profiles/:name/cron-jobs/:jobId` | 删除定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/pause` | 暂停定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/resume` | 恢复定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/run` | 立即执行定时任务 |
 
 ### Runs（执行任务）
 
@@ -429,6 +466,8 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 | POST | `/api/v1/system/autostart/disable` | 关闭开机自启 |
 | GET | `/api/v1/system/logs` | 最近 Link 日志 |
 | GET | `/api/v1/system/logs/gateway` | 最近 Gateway 日志 |
+| GET | `/api/v1/system/updates` | 查询可用更新（Hermes + Link 汇总）|
+| POST | `/api/v1/system/updates/dismiss` | 忽略当前可用更新提示 |
 
 ### 错误响应格式
 
@@ -505,17 +544,16 @@ curl -s "http://localhost:18642/api/v1/conversations?limit=10" \
   -H "Authorization: Bearer $ACCESS"
 ```
 
-## 工作原理
+## 开机自启
 
-```
-客户端（浏览器 / App）
-   │
-   └──→ hermeslink (本机, 端口 18642)
-              │
-              └──→ Hermes Agent API Server (127.0.0.1:8642)
-```
+- **macOS**：通过 launchd（`~/Library/LaunchAgents/com.hermes.link.plist`）
+- **Linux**：通过 systemd 用户服务或 XDG autostart
+- **Windows**：通过 Startup 文件夹
 
-`hermeslink` 在本机运行一个 HTTP 服务，客户端通过局域网直接访问。对话、文件、指令均在本地处理，数据不经过外部服务器。
+```bash
+hermeslink autostart on
+hermeslink autostart off
+```
 
 ## 运行时文件
 
@@ -544,17 +582,6 @@ curl -s "http://localhost:18642/api/v1/conversations?limit=10" \
 | `HERMESLINK_LANG` | 覆盖语言（`en` / `zh-CN`）|
 | `HERMES_BIN` | `hermes` 二进制路径（默认 `hermes`）|
 | `HERMESLINK_LISTEN_HOST` | HTTP 监听地址（默认 `0.0.0.0`）|
-
-## 开机自启
-
-- **macOS**：通过 launchd（`~/Library/LaunchAgents/com.hermes.link.plist`）
-- **Linux**：通过 systemd 用户服务或 XDG autostart
-- **Windows**：通过 Startup 文件夹
-
-```bash
-hermeslink autostart on
-hermeslink autostart off
-```
 
 ## 开发调试
 
