@@ -4,7 +4,7 @@
 
 ## 概述
 
-Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http://0.0.0.0:52379`。客户端（App / 浏览器）通过公网或局域网直接访问，对话、文件、指令均在本地处理，数据不经过外部服务器。
+Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http://0.0.0.0:18642`。客户端（App / 浏览器）通过公网或局域网直接访问，对话、文件、指令均在本地处理，数据不经过外部服务器。
 
 所有 API 请求分为两类：
 
@@ -116,7 +116,7 @@ hermeslink logs
   "display_name": "Hermes Link",
   "session_id": "ps_xxx",
   "code": "xxx",
-  "preferred_urls": ["http://192.168.1.10:52379", "http://127.0.0.1:52379"]
+  "preferred_urls": ["http://192.168.1.10:18642", "http://127.0.0.1:18642"]
 }
 ```
 
@@ -145,7 +145,7 @@ hermeslink pair
 CONNECT_TOKEN=$(hermeslink pair 2>&1 | grep "Connect token:" | awk '{print $NF}')
 
 # 2. 用 connect_token 换 access_token
-curl -s -X POST http://localhost:52379/api/v1/auth/device-session \
+curl -s -X POST http://localhost:18642/api/v1/auth/device-session \
   -H "Authorization: Bearer $CONNECT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"device_label":"my-script","device_platform":"cli"}'
@@ -176,7 +176,7 @@ curl -s -X POST http://localhost:52379/api/v1/auth/device-session \
 ## 配置
 
 ```bash
-hermeslink config set port 52379              # 修改监听端口（默认 52379）
+hermeslink config set port 18642              # 修改监听端口（默认 18642）
 hermeslink config set lan-host 192.168.1.10   # 手动指定局域网 IP（默认自动检测）
 hermeslink config set language zh-CN          # 语言：auto / en / zh-CN
 hermeslink config set log-level debug         # 日志级别：debug / info / warn / error
@@ -186,7 +186,7 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 ## API 参考
 
-服务默认监听 `http://0.0.0.0:52379`。所有需要鉴权的接口均使用 Bearer Token（`hpat_` 前缀）。
+服务默认监听 `http://0.0.0.0:18642`。所有需要鉴权的接口均使用 Bearer Token（`hpat_` 前缀）。
 
 ### Token 说明
 
@@ -462,7 +462,7 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 ```bash
 #!/bin/bash
-BASE="http://localhost:52379"
+BASE="http://localhost:18642"
 
 # Step 1: 生成配对 token
 CONNECT=$(hermeslink pair 2>&1 | grep "Connect token:" | awk '{print $NF}')
@@ -486,7 +486,7 @@ curl -s "$BASE/api/v1/status" -H "Authorization: Bearer $ACCESS" | python3 -m js
 ### 刷新 Token
 
 ```bash
-curl -s -X POST http://localhost:52379/api/v1/auth/refresh \
+curl -s -X POST http://localhost:18642/api/v1/auth/refresh \
   -H "Content-Type: application/json" \
   -d "{\"refresh_token\":\"$REFRESH\"}"
 ```
@@ -494,14 +494,14 @@ curl -s -X POST http://localhost:52379/api/v1/auth/refresh \
 ### 查询设备列表
 
 ```bash
-curl -s http://localhost:52379/api/v1/devices \
+curl -s http://localhost:18642/api/v1/devices \
   -H "Authorization: Bearer $ACCESS"
 ```
 
 ### 查询对话列表
 
 ```bash
-curl -s "http://localhost:52379/api/v1/conversations?limit=10" \
+curl -s "http://localhost:18642/api/v1/conversations?limit=10" \
   -H "Authorization: Bearer $ACCESS"
 ```
 
@@ -510,7 +510,7 @@ curl -s "http://localhost:52379/api/v1/conversations?limit=10" \
 ```
 客户端（浏览器 / App）
    │
-   └──→ hermeslink (本机, 端口 52379)
+   └──→ hermeslink (本机, 端口 18642)
               │
               └──→ Hermes Agent API Server (127.0.0.1:8642)
 ```
@@ -576,7 +576,7 @@ node dist/cli/index.js daemon --foreground  # 终端2：运行服务
 npm run check
 ```
 
-服务运行后可访问 `http://localhost:52379/api/v1/bootstrap` 验证是否正常。
+服务运行后可访问 `http://localhost:18642/api/v1/bootstrap` 验证是否正常。
 
 ## License
 

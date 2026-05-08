@@ -4,7 +4,7 @@ const _pkg = _require("../package.json") as { version: string };
 
 export const LINK_COMMAND = "hermeslink";
 export const LINK_VERSION = _pkg.version;
-export const LINK_DEFAULT_PORT = 52379;
+export const LINK_DEFAULT_PORT = 18642;
 export const LINK_RUNTIME_DIR_NAME = ".hermeslink";
 
 export const DEFAULT_LOG_FILE = "hermeslink.log";
