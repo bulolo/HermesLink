@@ -5,6 +5,7 @@
  * Tests that depend on Hermes API Server are skipped when it's unreachable.
  */
 
+
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "fs/promises";
 import os from "os";
@@ -21,7 +22,7 @@ const state = {
   baseUrl: "",
   accessToken: "",
   refreshToken: "",
-  stopServer: async () => {},
+  stopServer: async () => { },
   hermesAvailable: false,
 };
 
