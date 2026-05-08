@@ -1,4 +1,4 @@
-# @bulolo/hermes-link
+# hermes-link
 
 本地伴随服务，为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供 API 接入能力，支持公网、局域网直连。
 
