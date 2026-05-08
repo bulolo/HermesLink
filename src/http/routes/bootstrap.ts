@@ -5,29 +5,16 @@ import { loadConfig } from "../../config/config.js";
 import { discoverRouteCandidates } from "../../network/topology.js";
 import { LINK_VERSION } from "../../constants.js";
 
-function routeObjects(urls: string[]): { url: string; kind: string }[] {
-  return urls.map((url) => ({
-    url,
-    kind: url.includes("/api/v1/relay/links/") ? "relay" : "lan",
-  }));
-}
-
 export function createBootstrapRouter(options: { paths: RuntimePaths }): Router {
   const { paths } = options;
   const router = new Router();
 
   router.get("/api/v1/bootstrap", async (ctx) => {
     const [identity, config] = await Promise.all([loadIdentity(paths), loadConfig(paths)]);
-    const routes = identity?.link_id
-      ? await discoverRouteCandidates({
-          port: config.port,
-          relayBaseUrl: config.relayBaseUrl,
-          linkId: identity.link_id,
-          installId: identity.install_id,
-          publicKeyPem: identity.public_key_pem,
-          configuredLanHost: config.lanHost,
-        })
-      : null;
+    const routes = await discoverRouteCandidates({
+      port: config.port,
+      configuredLanHost: config.lanHost,
+    }).catch(() => null);
     ctx.set("cache-control", "no-store");
     ctx.body = {
       link_id: identity?.link_id ?? null,
@@ -37,11 +24,11 @@ export function createBootstrapRouter(options: { paths: RuntimePaths }): Router 
       paired: Boolean(identity?.link_id),
       pairing_supported: Boolean(identity?.link_id),
       preferred_pairing_urls: routes?.preferredUrls ?? [],
-      routes: routes ? routeObjects(routes.preferredUrls) : [],
+      routes: (routes?.preferredUrls ?? []).map((url) => ({ url, kind: "lan" })),
       capabilities: {
         runs: true,
         sse: true,
-        relay: true,
+        relay: false,
         profiles: true,
         logs: true,
         statistics: true,
@@ -61,7 +48,7 @@ export function createBootstrapRouter(options: { paths: RuntimePaths }): Router 
         cron_jobs: true,
         profile_skills: true,
         profile_memory: true,
-        hermes_updates: true,
+        hermes_updates: false,
       },
     };
   });

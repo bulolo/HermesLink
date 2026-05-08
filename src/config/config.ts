@@ -8,10 +8,6 @@ export type Language = "auto" | "en" | "zh-CN";
 export interface LinkConfig {
   port: number;
   lanHost: string | null;
-  serverBaseUrl: string;
-  relayBaseUrl: string;
-  appConnectTokenIssuer: string;
-  appConnectTokenAudience: string;
   language: Language;
   logLevel: LogLevel;
 }
@@ -19,10 +15,6 @@ export interface LinkConfig {
 const defaultLinkConfig: LinkConfig = {
   port: LINK_DEFAULT_PORT,
   lanHost: null,
-  serverBaseUrl: "https://hermes-server.catwiki.ai",
-  relayBaseUrl: "https://hermes-relay.catwiki.ai",
-  appConnectTokenIssuer: "https://hermes-server.catwiki.ai",
-  appConnectTokenAudience: "hermes-link",
   language: "auto",
   logLevel: "warn",
 };

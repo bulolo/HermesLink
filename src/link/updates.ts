@@ -9,31 +9,11 @@ export interface UpdateInfo {
 }
 
 export async function checkForUpdates(options: {
-  relayBaseUrl: string;
   paths?: RuntimePaths;
-  fetchImpl?: typeof fetch;
-}): Promise<UpdateInfo> {
+} = {}): Promise<UpdateInfo> {
   const paths = options.paths ?? resolveRuntimePaths();
   const state = await readLinkState(paths);
-  const fetcher = options.fetchImpl ?? fetch;
-  try {
-    const response = await fetcher(
-      `${options.relayBaseUrl.replace(/\/+$/u, "")}/api/v1/relay/link-versions/latest`,
-      { signal: AbortSignal.timeout(5000) },
-    );
-    if (!response.ok) {
-      return buildUpdateInfo(state.updateAvailable, state.updateDismissedAt);
-    }
-    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    const latestVersion = typeof body?.version === "string" ? body.version : null;
-    if (latestVersion && latestVersion !== LINK_VERSION) {
-      await updateLinkState({ updateAvailable: latestVersion }, paths);
-      return buildUpdateInfo(latestVersion, state.updateDismissedAt);
-    }
-    return buildUpdateInfo(latestVersion, state.updateDismissedAt);
-  } catch {
-    return buildUpdateInfo(state.updateAvailable, state.updateDismissedAt);
-  }
+  return buildUpdateInfo(state.updateAvailable, state.updateDismissedAt);
 }
 
 function buildUpdateInfo(

@@ -18,13 +18,7 @@ export interface RouteCandidates {
 
 export async function discoverRouteCandidates(options: {
   configuredLanHost?: string | null;
-  relayBaseUrl: string;
-  linkId: string;
   port: number;
-  installId?: string;
-  publicKeyPem?: string;
-  relayBootstrapToken?: string;
-  observePublicRoute?: boolean;
   fetchImpl?: typeof fetch;
 }): Promise<RouteCandidates> {
   const environment = detectRuntimeEnvironment();
@@ -34,17 +28,15 @@ export async function discoverRouteCandidates(options: {
     : environment.lanAutoDiscoveryUsable
       ? discoverLanIps()
       : [];
-  const publicIps =
-    options.relayBootstrapToken || options.observePublicRoute
-      ? await observePublicRoute(options).catch(() => ({ publicIpv4s: [], publicIpv6s: [] }))
-      : { publicIpv4s: [], publicIpv6s: [] };
+  const publicIps = await fetchPublicIpSimple(options.fetchImpl ?? fetch)
+    .then((ip) => ip ? { publicIpv4s: [ip], publicIpv6s: [] } : { publicIpv4s: [], publicIpv6s: [] })
+    .catch(() => ({ publicIpv4s: [], publicIpv6s: [] }));
   const publicIpv4s = unique(publicIps.publicIpv4s.filter(isUsablePublicIpv4)).slice(0, MAX_PUBLIC_IPV4S);
   const publicIpv6s = unique(publicIps.publicIpv6s.filter(isUsablePublicIpv6)).slice(0, MAX_PUBLIC_IPV6S);
   const preferredUrls = [
     ...lanIps.map((ip) => buildDirectUrl(ip, options.port)),
     ...publicIpv4s.map((ip) => buildDirectUrl(ip, options.port)),
     ...publicIpv6s.map((ip) => buildDirectUrl(ip, options.port)),
-    `${options.relayBaseUrl.replace(/\/+$/u, "")}/api/v1/relay/links/${options.linkId}`,
   ];
   return { lanIps, publicIpv4s, publicIpv6s, preferredUrls, environment };
 }
@@ -72,77 +64,12 @@ function discoverLanIpsFromInterfaces(
   return [...result].slice(0, MAX_LAN_IPS);
 }
 
-async function observePublicRoute(options: {
-  relayBaseUrl: string;
-  installId?: string;
-  linkId?: string;
-  publicKeyPem?: string;
-  relayBootstrapToken?: string;
-  fetchImpl?: typeof fetch;
-}): Promise<{ publicIpv4s: string[]; publicIpv6s: string[] }> {
-  const fetcher = options.fetchImpl ?? fetch;
-
-  // First try a simple public IP lookup that doesn't need relay
-  const simpleIp = await fetchPublicIpSimple(fetcher).catch(() => null);
-
-  try {
-    const response = await fetcher(
-      `${options.relayBaseUrl.replace(/\/+$/u, "")}/api/v1/relay/public-route/observe`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          ...(options.relayBootstrapToken ? { authorization: `Bearer ${options.relayBootstrapToken}` } : {}),
-        },
-        body: JSON.stringify({
-          install_id: options.installId,
-          link_id: options.linkId,
-          public_key_pem: options.publicKeyPem,
-        }),
-        signal: AbortSignal.timeout(5000),
-      },
-    );
-    const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
-    const record =
-      typeof payload?.record === "object" && payload.record !== null
-        ? (payload.record as Record<string, unknown>)
-        : null;
-    const observed =
-      typeof payload?.observed === "object" && payload.observed !== null
-        ? (payload.observed as Record<string, unknown>)
-        : null;
-    const values = [
-      simpleIp,
-      readIpRecord(record?.ipv4),
-      readIpRecord(record?.ipv6),
-      typeof observed?.ip === "string" ? observed.ip : null,
-    ].filter((v): v is string => Boolean(v));
-    return {
-      publicIpv4s: unique(values.filter(isUsablePublicIpv4)),
-      publicIpv6s: unique(values.filter(isUsablePublicIpv6)),
-    };
-  } catch {
-    // Relay unreachable — fall back to simple IP only
-    const values = [simpleIp].filter((v): v is string => Boolean(v));
-    return {
-      publicIpv4s: unique(values.filter(isUsablePublicIpv4)),
-      publicIpv6s: [],
-    };
-  }
-}
-
 async function fetchPublicIpSimple(fetcher: typeof fetch): Promise<string | null> {
   const res = await fetcher("https://api.ipify.org?format=json", {
     signal: AbortSignal.timeout(4000),
   });
   const data = (await res.json()) as { ip?: string };
   return typeof data.ip === "string" && data.ip.trim() ? data.ip.trim() : null;
-}
-
-function readIpRecord(value: unknown): string | null {
-  if (typeof value !== "object" || value === null) return null;
-  const ip = (value as Record<string, unknown>).ip;
-  return typeof ip === "string" && ip.trim() ? ip.trim() : null;
 }
 
 function buildDirectUrl(ip: string, port: number): string {

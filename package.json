@@ -1,7 +1,7 @@
 {
   "name": "@bulolo/hermes-link",
   "version": "0.2.9",
-  "description": "Hermes Link companion service and CLI for connecting hermes-agent through zhiji",
+  "description": "Local companion service and CLI for Hermes Agent, enabling mobile and LAN access",
   "license": "MIT",
   "type": "module",
   "bin": {
@@ -17,9 +17,10 @@
   "keywords": [
     "hermes",
     "hermes-agent",
-    "relay",
     "link",
-    "cli"
+    "cli",
+    "local",
+    "lan"
   ],
   "publishConfig": {
     "access": "public"
@@ -31,12 +32,17 @@
     "build": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --dts --clean",
     "check": "tsc --noEmit",
     "dev": "tsx src/cli/index.ts",
+    "dev:run": "npm run build && node ./dist/cli/index.js daemon --foreground",
+    "dev:watch": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --watch",
     "preinstall": "node ./scripts/check-node-version.mjs",
     "postinstall": "node ./scripts/postinstall.mjs",
     "prepack": "npm run build",
     "start": "node ./dist/cli/index.js",
     "test": "vitest",
     "publish:npm": "npm publish --access public --registry https://registry.npmjs.org"
+  },
+  "overrides": {
+    "generator-function": "1.x"
   },
   "dependencies": {
     "@koa/cors": "^5.0.0",

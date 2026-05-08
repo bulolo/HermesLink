@@ -75,7 +75,6 @@ export function createSystemRouter(options: {
 
   router.get("/updates", auth, async (ctx: Context) => {
     const info = await checkForUpdates({
-      relayBaseUrl: options.config.relayBaseUrl,
       paths: options.paths,
     });
     ctx.body = info;

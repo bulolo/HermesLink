@@ -33,15 +33,25 @@ export async function loadIdentity(paths: RuntimePaths = resolveRuntimePaths()):
 export async function ensureIdentity(paths: RuntimePaths = resolveRuntimePaths()): Promise<LinkIdentity> {
   const existing = await loadIdentity(paths);
   if (existing) {
+    if (!existing.link_id) {
+      const updated: LinkIdentity = {
+        ...existing,
+        link_id: `link_${existing.install_id.replace("install_", "")}`,
+        updated_at: new Date().toISOString(),
+      };
+      await writeJsonFile(paths.identityFile, updated);
+      return updated;
+    }
     return existing;
   }
   await mkdir(paths.homeDir, { recursive: true, mode: 0o700 });
   await chmod(paths.homeDir, 0o700).catch(() => undefined);
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const now = new Date().toISOString();
+  const installId = `install_${randomUUID().replaceAll("-", "")}`;
   const identity: LinkIdentity = {
-    install_id: `install_${randomUUID().replaceAll("-", "")}`,
-    link_id: null,
+    install_id: installId,
+    link_id: `link_${installId.replace("install_", "")}`,
     public_key_pem: publicKey.export({ type: "spki", format: "pem" }).toString(),
     private_key_pem: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
     created_at: now,

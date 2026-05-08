@@ -1,6 +1,5 @@
 import Router from "@koa/router";
 import path from "path";
-import { rm } from "fs/promises";
 import { type RuntimePaths } from "../../runtime/paths.js";
 import { type Logger } from "pino";
 import { readJsonFile, writeJsonFile } from "../../storage/atomic-json.js";
@@ -15,6 +14,10 @@ function readString(body: unknown, ...keys: string[]): string | null {
     if (typeof val === "string") return val;
   }
   return null;
+}
+
+function readQueryString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 async function readJsonBody(req: import("http").IncomingMessage): Promise<unknown> {
@@ -36,8 +39,6 @@ interface PairingSession {
   link_id: string;
   display_name: string;
   local_api_url: string;
-  server_base_url: string;
-  relay_base_url: string;
   preferred_urls: string[];
   created_at: string;
   expires_at: string;
@@ -66,14 +67,17 @@ async function readPairingSession(sessionId: string, paths: RuntimePaths): Promi
     session_id: r.session_id as string,
     code: r.code as string,
     link_id: r.link_id as string,
-    display_name: r.display_name as string,
-    local_api_url: r.local_api_url as string,
-    server_base_url: r.server_base_url as string,
-    relay_base_url: r.relay_base_url as string,
+    display_name: (r.display_name as string) ?? "Hermes Link",
+    local_api_url: (r.local_api_url as string) ?? "",
     preferred_urls: Array.isArray(r.preferred_urls) ? (r.preferred_urls as string[]).filter((v) => typeof v === "string") : [],
     created_at: r.created_at as string,
     expires_at: r.expires_at as string,
   };
+}
+
+async function isPairingSessionClaimed(sessionId: string, paths: RuntimePaths): Promise<boolean> {
+  const claimRecord = await readJsonFile(pairingClaimPath(sessionId, paths));
+  return claimRecord !== null;
 }
 
 function isPairingSessionExpired(session: PairingSession): boolean {
@@ -103,6 +107,37 @@ export function createPairingRouter(options: {
   const { paths, logger, onPairingClaimed } = options;
   const router = new Router();
 
+  // GET /api/v1/pairing/session — check pairing session state (used by pairing page polling)
+  router.get("/api/v1/pairing/session", async (ctx) => {
+    const sessionId = readQueryString(ctx.query.session_id) ?? readQueryString(ctx.query.sessionId);
+    if (!sessionId) {
+      throw new LinkHttpError(400, "pairing_session_required", "session_id is required");
+    }
+    const session = await readPairingSession(sessionId, paths);
+    if (!session) {
+      throw new LinkHttpError(404, "pairing_session_not_found", "Pairing session was not found");
+    }
+    const claimed = await isPairingSessionClaimed(sessionId, paths);
+    if (!claimed && isPairingSessionExpired(session)) {
+      throw new LinkHttpError(404, "pairing_session_expired", "Pairing session has expired");
+    }
+    ctx.set("cache-control", "no-store");
+    ctx.body = {
+      ok: true,
+      session: {
+        session_id: session.session_id,
+        link_id: session.link_id,
+        display_name: session.display_name,
+        local_api_url: session.local_api_url,
+        preferred_urls: session.preferred_urls,
+        created_at: session.created_at,
+        expires_at: session.expires_at,
+        claimed,
+      },
+    };
+  });
+
+  // POST /api/v1/pairing/claim — claim a pairing session with token
   router.post("/api/v1/pairing/claim", async (ctx) => {
     const body = await readJsonBody(ctx.req);
     const sessionId = readString(body, "session_id", "sessionId");
@@ -118,8 +153,6 @@ export function createPairingRouter(options: {
     if (!localSession) throw new LinkHttpError(404, "pairing_session_not_found", "Pairing session was not found");
     if (isPairingSessionExpired(localSession)) throw new LinkHttpError(404, "pairing_session_expired", "Pairing session has expired");
     if (localSession.link_id !== identity.link_id) throw new LinkHttpError(409, "pairing_claim_mismatch", "Pairing claim does not match this Link");
-
-    // Local verification: claim_token must match the session code
     if (localSession.code !== claimToken) {
       throw new LinkHttpError(409, "pairing_claim_mismatch", "Pairing claim token does not match");
     }
@@ -133,6 +166,7 @@ export function createPairingRouter(options: {
     );
 
     ctx.body = {
+      ok: true,
       link: { link_id: identity.link_id, display_name: "Hermes Link" },
       device: session.device,
       access_token: { token: session.accessToken.token, expires_at: session.accessToken.expiresAt },

@@ -3,7 +3,7 @@ import { mkdir } from "fs/promises";
 import qrcode from "qrcode-terminal";
 import { LINK_COMMAND, LINK_VERSION } from "../constants.js";
 import { loadConfig, saveConfig } from "../config/config.js";
-import { ensureIdentity, loadIdentity, saveAssignedLinkId } from "../identity/identity.js";
+import { ensureIdentity, loadIdentity } from "../identity/identity.js";
 import { resolveRuntimePaths } from "../runtime/paths.js";
 import { enableAutostart, disableAutostart, getAutostartStatus } from "../autostart/autostart.js";
 import { detectRuntimeEnvironment } from "../network/environment.js";
@@ -14,12 +14,10 @@ import {
   runDaemonSupervisor,
   probeLocalLinkService,
 } from "../daemon/process.js";
-import { bootstrapWithRelay } from "../relay/bootstrap.js";
 import { startLinkService } from "../http/app.js";
 import { runPairingPreflight, buildLocalPairingPageUrl } from "../pairing/preflight.js";
 import { normalizeLanHost } from "../config/config.js";
 import { readRecentLogEntries, readRecentGatewayLogEntries } from "../runtime/logger.js";
-import { checkForUpdates } from "../link/updates.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -134,26 +132,10 @@ async function cmdDaemon(paths: ReturnType<typeof resolveRuntimePaths>): Promise
     process.exitCode = 1;
     return;
   }
-  const config = await loadConfig(paths);
   const identity = await ensureIdentity(paths);
+  const config = await loadConfig(paths);
 
-  // Bootstrap relay if needed
-  let relayToken = "";
-  try {
-    const bootstrapResult = await bootstrapWithRelay({
-      relayBaseUrl: config.relayBaseUrl,
-      identity,
-      port: config.port,
-    });
-    if (!identity.link_id) {
-      await saveAssignedLinkId(bootstrapResult.linkId, paths);
-    }
-    relayToken = bootstrapResult.token;
-  } catch (err) {
-    process.stderr.write(`Warning: Relay bootstrap failed: ${(err as Error).message}\n`);
-  }
-
-  const service = await startLinkService({ config, identity, paths, relayToken });
+  const service = await startLinkService({ config, identity, paths });
 
   process.stdout.write(`Hermes Link running on port ${config.port}\n`);
 
@@ -174,19 +156,18 @@ async function cmdDaemonSupervisor(paths: ReturnType<typeof resolveRuntimePaths>
 async function cmdPair(paths: ReturnType<typeof resolveRuntimePaths>): Promise<void> {
   const config = await loadConfig(paths);
   const identity = await ensureIdentity(paths);
-  if (!identity.link_id) {
-    process.stderr.write("Error: Hermes Link is not connected to relay. Run 'hermeslink start' first.\n");
-    process.exitCode = 1;
-    return;
-  }
-  const result = await runPairingPreflight({ identity, config, paths });
-  const pageBase = result.bestUrl.replace(/\/+$/u, "");
-  const pageUrl = `${pageBase}/pair?connect_token=${encodeURIComponent(result.connectToken)}`;
+  const result = await runPairingPreflight({ identity, config, paths, openBrowser: false });
+
   process.stdout.write("\n");
-  qrcode.generate(result.pairingUrl, { small: true });
-  process.stdout.write(`\nPairing URL:   ${result.pairingUrl}\n`);
-  process.stdout.write(`Pairing page:  ${pageUrl}\n`);
-  process.stdout.write(`Connect token: ${result.connectToken}\n`);
+  // QR 码编码 JSON payload，供 App 扫码解析
+  qrcode.generate(result.qrPayload, { small: true });
+  process.stdout.write(`\nPairing page:    ${result.pageUrl}\n`);
+  process.stdout.write(`Session ID:      ${result.sessionId}\n`);
+  process.stdout.write(`Connect token:   ${result.connectToken}\n`);
+  process.stdout.write(`Preferred URLs:  ${result.preferredUrls.join(", ")}\n`);
+  process.stdout.write(`\nApp 扫描二维码后，调用以下接口完成配对：\n`);
+  process.stdout.write(`  POST ${result.preferredUrls[0]}/api/v1/pairing/claim\n`);
+  process.stdout.write(`  Body: { "session_id": "${result.sessionId}", "claim_token": "<code>" }\n`);
 }
 
 async function cmdConfig(paths: ReturnType<typeof resolveRuntimePaths>): Promise<void> {
@@ -263,12 +244,12 @@ async function cmdLogs(paths: ReturnType<typeof resolveRuntimePaths>): Promise<v
 
 async function cmdAutostart(paths: ReturnType<typeof resolveRuntimePaths>): Promise<void> {
   const subcommand = args[1];
-  if (subcommand === "enable") {
+  if (subcommand === "enable" || subcommand === "on") {
     const status = await enableAutostart();
     process.stdout.write(`Autostart ${status.enabled ? "enabled" : "could not be enabled"} (${status.method})\n`);
     return;
   }
-  if (subcommand === "disable") {
+  if (subcommand === "disable" || subcommand === "off") {
     const status = await disableAutostart();
     process.stdout.write(`Autostart ${status.enabled ? "still enabled" : "disabled"} (${status.method})\n`);
     return;
@@ -291,6 +272,7 @@ Commands:
   config get         Show current configuration
   config set         Set a configuration value
   autostart          Show/enable/disable autostart
+  autostart on|off   Enable or disable autostart
   logs               Show recent log entries (--gateway for gateway logs)
   version            Print version
 
