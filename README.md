@@ -13,30 +13,26 @@ Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http:/
 
 ## 为什么需要 HermesLink？
 
-Hermes Agent 内置了一个 API Server（端口 8642），但它只提供 **12 个接口**，职责非常单一：
+Hermes Agent 内置了一个 API Server（端口 8642），但它只有 **12 个接口**：
 
-| 类别 | Hermes Agent API Server |
-|------|------------------------|
-| Agent 执行 | `POST /v1/runs`、事件流、取消 |
-| 模型列表 | `GET /v1/models` |
-| 定时任务 CRUD | `GET/POST/PATCH/DELETE /api/jobs` |
-| 健康检查 | `GET /api/health` |
+| 功能 | Hermes API Server `:8642` | HermesLink `:18642` |
+|------|:---:|:---:|
+| 接口数量 | 12 | **97** |
+| Agent 执行 / 事件流 | ✓ | ✓（代理转发） |
+| 模型列表 / 定时任务 | ✓ | ✓（代理转发） |
+| 认证 | 单一共享 Key | 设备独立 Token，可单独吊销 |
+| 设备配对 | — | ✓ 二维码 / 多设备管理 |
+| 对话存储 | — | ✓ 本地历史 + 附件 |
+| Profile & Memory 管理 | — | ✓ 多 Profile、记忆、权限、工具开关 |
+| 使用统计 | — | ✓ Token 用量按日期 / 模型 / Profile |
+| 工具调用审批 | — | ✓ Approve / deny 流程 |
+| 更新管理 / 开机自启 | — | ✓ |
 
-认证使用单一共享 Key（所有客户端持同一个密钥，无法区分设备、无法单独吊销），没有设备管理、没有对话存储、没有配对流程。适合本机脚本或受信任的内部服务直连，不适合面向多设备或移动 App 暴露。
+### 如何选择
 
-HermesLink 在此基础上提供 **97 个接口**，补全了面向客户端所需的一切：
-
-| 能力 | 说明 |
-|------|------|
-| **设备配对与多设备鉴权** | 二维码 / 扫码配对，每台设备独立 access token（15 min）+ refresh token（90 天），可单独吊销 |
-| **对话与附件本地存储** | 对话历史、消息、文件附件全部存储在本机，不经过外部服务器 |
-| **Profile & Memory 管理** | 多 Profile 支持，每个 Profile 独立的记忆（USER.md / MEMORY.md）、权限、技能开关、工具配置 |
-| **使用统计** | Token 用量、对话数等本地统计，支持按日期/模型/Profile 筛选 |
-| **工具调用审批** | 敏感操作的 approve / deny 流程，让 App 侧可介入确认 |
-| **更新与系统管理** | Hermes 和 Link 自身的更新检查、触发、自启动（launchd / systemd）|
-| **局域网 / 公网直连** | 监听 `0.0.0.0`，客户端通过 LAN 或内网穿透直连，数据不出本机 |
-
-**如果你只需要本机脚本调用 Hermes Agent，直接用它的 API Server（8642）即可。如果你要开发移动 App、多设备接入，或需要对话存储 / Profile 管理等完整功能，HermesLink 是必要的接入层。**
+- **只需本机脚本 / 受信任内部服务直连** → 直接用 Hermes API Server（8642）
+- **开发移动 App 或多设备接入** → 需要 HermesLink（18642）
+- **需要对话历史 / Profile / 统计等完整功能** → 需要 HermesLink（18642）
 
 ## 工作原理
 
