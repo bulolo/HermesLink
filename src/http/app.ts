@@ -53,7 +53,7 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
   await mkdir(paths.blobsDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
   await mkdir(paths.pairingDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
 
-  const conversations = new ConversationService(paths);
+  const conversations = new ConversationService(paths, logger);
 
   const app = new Koa();
   app.use(cors({ origin: "*" }));

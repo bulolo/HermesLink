@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import crypto from "crypto";
+import { type Logger } from "pino";
 import { type RuntimePaths } from "../runtime/paths.js";
 import { LinkHttpError } from "../core/errors.js";
 import {
@@ -36,6 +37,7 @@ import {
   type RunUsageFactRecord,
 } from "../storage/link-database.js";
 import { openSqliteDatabase } from "../storage/sqlite.js";
+import { createHermesRun, streamHermesRunEvents } from "../hermes/runs.js";
 
 function buildConversationStats(manifest: ConversationManifest, snapshot: ConversationSnapshot): NonNullable<ConversationManifest["stats"]> {
   const agentRuns = snapshot.runs.filter(r => r.kind === "agent");
@@ -94,6 +96,87 @@ function buildRunUsageFacts(manifest: ConversationManifest, snapshot: Conversati
     });
 }
 
+function sseToRec(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function sseReadText(payload: Record<string, unknown>, key: string): string | null {
+  const v = payload[key];
+  return typeof v === "string" && v ? v : null;
+}
+
+function sseReadDelta(payload: Record<string, unknown>): string | null {
+  return sseReadText(payload, "delta") ?? sseReadText(payload, "text") ?? sseReadText(payload, "content");
+}
+
+function sseReadUsage(payload: Record<string, unknown>): RunUsage | null {
+  const readInt = (obj: Record<string, unknown>, key: string): number | null => {
+    const v = obj[key];
+    return typeof v === "number" && Number.isFinite(v) ? Math.trunc(v) : null;
+  };
+  const usage = sseToRec(payload.usage);
+  const response = sseToRec(payload.response);
+  const responseUsage = sseToRec(response.usage);
+  const run = sseToRec(payload.run);
+  const runUsage = sseToRec(run.usage);
+  const inp =
+    readInt(usage, "input_tokens") ?? readInt(usage, "prompt_tokens") ??
+    readInt(responseUsage, "input_tokens") ?? readInt(runUsage, "input_tokens") ?? null;
+  const out =
+    readInt(usage, "output_tokens") ?? readInt(usage, "completion_tokens") ??
+    readInt(responseUsage, "output_tokens") ?? readInt(runUsage, "output_tokens") ?? null;
+  if (inp === null && out === null) return null;
+  const i = inp ?? 0, o = out ?? 0;
+  const t = readInt(usage, "total_tokens") ?? readInt(responseUsage, "total_tokens") ?? readInt(runUsage, "total_tokens") ?? i + o;
+  return { input_tokens: i, output_tokens: o, total_tokens: t };
+}
+
+function parseSseBlock(block: string): { payloadType: string; payload: Record<string, unknown> } | null {
+  let eventName = "";
+  const dataLines: string[] = [];
+  for (const rawLine of block.split("\n")) {
+    const line = rawLine.trimEnd();
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  if (!eventName && dataLines.length === 0) return null;
+  const raw = dataLines.join("\n").trim();
+  if (!raw || raw === "[DONE]") return null;
+  let decoded: unknown;
+  try { decoded = JSON.parse(raw); } catch { return null; }
+  const payload = sseToRec(decoded);
+  const payloadType = (sseReadText(payload, "type") ?? sseReadText(payload, "event") ?? sseReadText(payload, "object") ?? eventName) || "message";
+  return { payloadType, payload };
+}
+
+async function* parseSseStreamResponse(
+  response: Response,
+): AsyncGenerator<{ payloadType: string; payload: Record<string, unknown> }> {
+  if (!response.body) return;
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const reader = response.body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep = buffer.indexOf("\n\n");
+      while (sep >= 0) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        const parsed = parseSseBlock(block);
+        if (parsed) yield parsed;
+        sep = buffer.indexOf("\n\n");
+      }
+    }
+    const trailing = parseSseBlock(buffer);
+    if (trailing) yield trailing;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 const conversationLocks = new Map<string, Promise<unknown>>();
 
 function withConversationLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
@@ -113,11 +196,14 @@ export type ConversationServiceEvent = ConversationEvent & { conversation_id: st
 
 export class ConversationService extends EventEmitter {
   private paths: RuntimePaths;
+  private logger: Logger | null;
+  private activeRunControllers = new Map<string, { conversationId: string; controller: AbortController }>();
 
-  constructor(paths: RuntimePaths) {
+  constructor(paths: RuntimePaths, logger?: Logger) {
     super();
     this.setMaxListeners(200);
     this.paths = paths;
+    this.logger = logger ?? null;
   }
 
   async persistConversationStats(conversationId: string, snapshot?: ConversationSnapshot): Promise<void> {
@@ -374,6 +460,10 @@ export class ConversationService extends EventEmitter {
     const latestEvent = await this.appendAndEmit(manifest.id, { type: "run.started", message_id: assistantMessageId, run_id: runId, payload: { run } }, manifest);
     await writeManifest(this.paths, manifest);
 
+    if (!hasActive) {
+      this.startRunWorkerAndDrain(manifest.id, runId, content, input.profileName ?? manifest.profile ?? null);
+    }
+
     return {
       conversation_id: manifest.id,
       user_message: { id: userMessageId, status: userMessage.status },
@@ -385,6 +475,8 @@ export class ConversationService extends EventEmitter {
   }
 
   async cancelRun(conversationId: string, runId: string): Promise<unknown> {
+    const active = this.activeRunControllers.get(runId);
+    if (active) active.controller.abort();
     return withConversationLock(conversationId, async () => {
       const manifest = await readActiveManifest(this.paths, conversationId);
       const snapshot = await readSnapshot(this.paths, conversationId);
@@ -407,6 +499,208 @@ export class ConversationService extends EventEmitter {
       await this.persistConversationStats(conversationId, snapshot).catch(() => undefined);
       return { conversation_id: conversationId, run: { id: run.id, status: run.status }, last_event_seq: manifest.last_event_seq };
     });
+  }
+
+  private startRunWorkerAndDrain(
+    conversationId: string,
+    runId: string,
+    input: string,
+    profileName: string | null,
+  ): void {
+    void this.runWorker(conversationId, runId, input, profileName).catch(async (error) => {
+      this.logger?.warn({ conversation_id: conversationId, run_id: runId, err: (error as Error).message }, "run_worker_unhandled_error");
+      await withConversationLock(conversationId, async () => {
+        const manifest = await readManifest(this.paths, conversationId);
+        if (!manifest) return;
+        const snapshot = await readSnapshot(this.paths, conversationId);
+        const run = snapshot.runs.find((r) => r.id === runId);
+        if (!run || run.status !== "running") return;
+        const now = new Date().toISOString();
+        run.status = "failed";
+        run.completed_at = now;
+        run.error_message = (error as Error).message ?? "Worker failed";
+        const asst = snapshot.messages.find((m) => m.id === run.assistant_message_id);
+        if (asst) { asst.status = "failed"; asst.updated_at = now; }
+        await writeSnapshot(this.paths, conversationId, snapshot);
+        await this.appendAndEmit(conversationId, { type: "run.failed", run_id: runId, payload: { run, error: { message: run.error_message } } }, manifest);
+        await writeManifest(this.paths, manifest);
+        await this.persistConversationStats(conversationId, snapshot).catch(() => undefined);
+      }).catch(() => undefined);
+    });
+  }
+
+  private async runWorker(
+    conversationId: string,
+    runId: string,
+    input: string,
+    profileName: string | null,
+  ): Promise<void> {
+    const initialSnapshot = await readSnapshot(this.paths, conversationId);
+    const run = initialSnapshot.runs.find((r) => r.id === runId);
+    if (!run || run.status !== "running") return;
+
+    const controller = new AbortController();
+    this.activeRunControllers.set(runId, { conversationId, controller });
+
+    try {
+      const history = initialSnapshot.messages
+        .filter((m) =>
+          (m.role === "user" || m.role === "assistant") &&
+          m.status === "completed" &&
+          m.id !== run.trigger_message_id &&
+          m.id !== run.assistant_message_id,
+        )
+        .map((m) => {
+          const text = m.parts.find((p) => p.type === "text")?.text?.trim() ?? "";
+          return text ? { role: m.role as "user" | "assistant", content: text } : null;
+        })
+        .filter((m): m is { role: "user" | "assistant"; content: string } => m !== null);
+
+      const { run_id: hermesRunId } = await createHermesRun(
+        {
+          input,
+          session_id: run.hermes_session_id ?? undefined,
+          conversation_history: history,
+        },
+        { profileName },
+      );
+
+      const sseResponse = await streamHermesRunEvents(hermesRunId, {
+        profileName,
+        signal: controller.signal,
+      });
+
+      let hasOutput = false;
+
+      for await (const { payloadType, payload } of parseSseStreamResponse(sseResponse)) {
+        if (controller.signal.aborted) break;
+
+        if (payloadType === "message.delta") {
+          const delta = sseReadDelta(payload);
+          if (!delta) continue;
+          hasOutput = true;
+          await withConversationLock(conversationId, async () => {
+            const manifest = await readManifest(this.paths, conversationId);
+            if (!manifest) return;
+            const snap = await readSnapshot(this.paths, conversationId);
+            const r = snap.runs.find((x) => x.id === runId);
+            if (!r || r.status !== "running") return;
+            const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+            if (!asst) return;
+            const textPart = asst.parts.find((p) => p.type === "text");
+            if (textPart) textPart.text = (textPart.text ?? "") + delta;
+            else asst.parts.push({ type: "text", text: delta });
+            asst.updated_at = new Date().toISOString();
+            await writeSnapshot(this.paths, conversationId, snap);
+            await this.appendAndEmit(conversationId, { type: "message.updated", message_id: asst.id, run_id: runId, payload: { message: asst } }, manifest);
+            await writeManifest(this.paths, manifest);
+          }).catch(() => undefined);
+          continue;
+        }
+
+        if (payloadType === "run.completed") {
+          const usage = sseReadUsage(payload);
+          await withConversationLock(conversationId, async () => {
+            const manifest = await readManifest(this.paths, conversationId);
+            if (!manifest) return;
+            const snap = await readSnapshot(this.paths, conversationId);
+            const r = snap.runs.find((x) => x.id === runId);
+            if (!r || r.status !== "running") return;
+            const now = new Date().toISOString();
+            r.status = "completed";
+            r.completed_at = now;
+            if (usage) r.usage = usage;
+            const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+            if (asst) { asst.status = "completed"; asst.updated_at = now; }
+            await writeSnapshot(this.paths, conversationId, snap);
+            if (asst) await this.appendAndEmit(conversationId, { type: "message.completed", message_id: asst.id, run_id: runId, payload: { message: asst } }, manifest);
+            await this.appendAndEmit(conversationId, { type: "run.completed", run_id: runId, payload: { run: r } }, manifest);
+            await writeManifest(this.paths, manifest);
+            await this.persistConversationStats(conversationId, snap).catch(() => undefined);
+          }).catch(() => undefined);
+          return;
+        }
+
+        if (payloadType === "run.failed") {
+          const errMsg = sseToRec(payload.error).message;
+          const errorMessage = typeof errMsg === "string" ? errMsg : "Hermes run failed";
+          await withConversationLock(conversationId, async () => {
+            const manifest = await readManifest(this.paths, conversationId);
+            if (!manifest) return;
+            const snap = await readSnapshot(this.paths, conversationId);
+            const r = snap.runs.find((x) => x.id === runId);
+            if (!r || r.status !== "running") return;
+            const now = new Date().toISOString();
+            r.status = "failed";
+            r.completed_at = now;
+            r.error_message = errorMessage;
+            const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+            if (asst) { asst.status = "failed"; asst.updated_at = now; }
+            await writeSnapshot(this.paths, conversationId, snap);
+            if (asst) await this.appendAndEmit(conversationId, { type: "message.failed", message_id: asst.id, run_id: runId, payload: { message: asst } }, manifest);
+            await this.appendAndEmit(conversationId, { type: "run.failed", run_id: runId, payload: { run: r, error: { message: errorMessage } } }, manifest);
+            await writeManifest(this.paths, manifest);
+            await this.persistConversationStats(conversationId, snap).catch(() => undefined);
+          }).catch(() => undefined);
+          return;
+        }
+      }
+
+      // Aborted mid-stream
+      if (controller.signal.aborted) {
+        await withConversationLock(conversationId, async () => {
+          const manifest = await readManifest(this.paths, conversationId);
+          if (!manifest) return;
+          const snap = await readSnapshot(this.paths, conversationId);
+          const r = snap.runs.find((x) => x.id === runId);
+          if (!r || r.status !== "running") return;
+          const now = new Date().toISOString();
+          r.status = "cancelled";
+          r.completed_at = now;
+          const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+          if (asst) { asst.status = "failed"; asst.updated_at = now; }
+          await writeSnapshot(this.paths, conversationId, snap);
+          await this.appendAndEmit(conversationId, { type: "run.cancelled", run_id: runId, payload: { run: r } }, manifest);
+          await writeManifest(this.paths, manifest);
+          await this.persistConversationStats(conversationId, snap).catch(() => undefined);
+        }).catch(() => undefined);
+        return;
+      }
+
+      // Stream ended without a terminal event
+      await withConversationLock(conversationId, async () => {
+        const manifest = await readManifest(this.paths, conversationId);
+        if (!manifest) return;
+        const snap = await readSnapshot(this.paths, conversationId);
+        const r = snap.runs.find((x) => x.id === runId);
+        if (!r || r.status !== "running") return;
+        const now = new Date().toISOString();
+        if (hasOutput) {
+          r.status = "completed";
+          r.completed_at = now;
+          const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+          if (asst) { asst.status = "completed"; asst.updated_at = now; }
+          await writeSnapshot(this.paths, conversationId, snap);
+          if (asst) await this.appendAndEmit(conversationId, { type: "message.completed", message_id: asst.id, run_id: runId, payload: { message: asst } }, manifest);
+          await this.appendAndEmit(conversationId, { type: "run.completed", run_id: runId, payload: { run: r } }, manifest);
+        } else {
+          r.status = "failed";
+          r.completed_at = now;
+          r.error_message = "Stream ended without output";
+          const asst = snap.messages.find((m) => m.id === r.assistant_message_id);
+          if (asst) { asst.status = "failed"; asst.updated_at = now; }
+          await writeSnapshot(this.paths, conversationId, snap);
+          if (asst) await this.appendAndEmit(conversationId, { type: "message.failed", message_id: asst.id, run_id: runId, payload: { message: asst } }, manifest);
+          await this.appendAndEmit(conversationId, { type: "run.failed", run_id: runId, payload: { run: r, error: { message: r.error_message } } }, manifest);
+        }
+        await writeManifest(this.paths, manifest);
+        await this.persistConversationStats(conversationId, snap).catch(() => undefined);
+      }).catch(() => undefined);
+    } finally {
+      if (this.activeRunControllers.get(runId)?.controller === controller) {
+        this.activeRunControllers.delete(runId);
+      }
+    }
   }
 
   async deleteConversation(conversationId: string): Promise<unknown> {
