@@ -98,6 +98,8 @@ async function probeHermesVersion(profile: string): Promise<string | null> {
 export function assertHermesRunsApiSupported(version: string | null): void {
   if (!version) return;
   const parts = version.split(".").map((v) => Number.parseInt(v, 10));
+  // Non-semver versions (e.g. "date") are treated as satisfying the requirement
+  if (parts.some((p) => Number.isNaN(p))) return;
   const minParts = MIN_API_SERVER_VERSION.split(".").map((v) => Number.parseInt(v, 10));
   for (let i = 0; i < 3; i++) {
     const a = parts[i] ?? 0;

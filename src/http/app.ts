@@ -1,5 +1,4 @@
 import Koa from "koa";
-import bodyParser from "koa-bodyparser";
 import cors from "@koa/cors";
 import Router from "@koa/router";
 import { mkdir } from "fs/promises";
@@ -15,6 +14,11 @@ import { createAuthRouter } from "./routes/auth.js";
 import { createDevicesRouter } from "./routes/devices.js";
 import { createConversationsRouter } from "./routes/conversations.js";
 import { createPairingRouter } from "./routes/pairing.js";
+import { createModelsRouter } from "./routes/models.js";
+import { createProfilesRouter } from "./routes/profiles.js";
+import { createCronJobsRouter } from "./routes/cron-jobs.js";
+import { createRunsRouter } from "./routes/runs.js";
+import { createUpdatesRouter } from "./routes/updates.js";
 import { openSqliteDatabase } from "../storage/sqlite.js";
 import { initLinkDatabase } from "../storage/link-database.js";
 import { ConversationService } from "../conversations/service.js";
@@ -53,7 +57,6 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
 
   const app = new Koa();
   app.use(cors({ origin: "*" }));
-  app.use(bodyParser({ jsonLimit: "10mb" }));
 
   // Error handler
   app.use(async (ctx, next) => {
@@ -133,21 +136,6 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
     };
   });
 
-  // Link update check
-  rootRouter.get("/api/v1/link/update-check", async (ctx) => {
-    await authenticateRequest(ctx, paths);
-    ctx.set("cache-control", "no-store");
-    const update = await checkForUpdates({ paths });
-    ctx.body = { ok: true, ...update };
-  });
-
-  // Hermes update check (local only — returns static unavailable)
-  rootRouter.get("/api/v1/hermes/update-check", async (ctx) => {
-    await authenticateRequest(ctx, paths);
-    ctx.set("cache-control", "no-store");
-    ctx.body = { ok: true, currentVersion: null, availableVersion: null, dismissed: false };
-  });
-
   app.use(rootRouter.routes());
   app.use(rootRouter.allowedMethods());
 
@@ -182,9 +170,34 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
   app.use(systemRouter.allowedMethods());
 
   // Statistics routes
-  const statsRouter = createStatisticsRouter({ db, paths });
+  const statsRouter = createStatisticsRouter({ db, paths, conversations });
   app.use(statsRouter.routes());
   app.use(statsRouter.allowedMethods());
+
+  // Models routes
+  const modelsRouter = createModelsRouter({ paths, logger });
+  app.use(modelsRouter.routes());
+  app.use(modelsRouter.allowedMethods());
+
+  // Profiles routes
+  const profilesRouter = createProfilesRouter({ paths, logger, conversations });
+  app.use(profilesRouter.routes());
+  app.use(profilesRouter.allowedMethods());
+
+  // Cron jobs routes
+  const cronJobsRouter = createCronJobsRouter({ paths, logger });
+  app.use(cronJobsRouter.routes());
+  app.use(cronJobsRouter.allowedMethods());
+
+  // Runs routes
+  const runsRouter = createRunsRouter({ paths, logger });
+  app.use(runsRouter.routes());
+  app.use(runsRouter.allowedMethods());
+
+  // Updates routes
+  const updatesRouter = createUpdatesRouter({ paths, logger });
+  app.use(updatesRouter.routes());
+  app.use(updatesRouter.allowedMethods());
 
   // Start HTTP server
   const listenHost = process.env.HERMESLINK_LISTEN_HOST ?? "0.0.0.0";

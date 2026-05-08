@@ -1,162 +1,257 @@
 import Router from "@koa/router";
-import type { Context, Next } from "koa";
+import type { Context } from "koa";
 import type { Database } from "better-sqlite3";
 import { authenticateRequest } from "../auth.js";
 import { type RuntimePaths } from "../../runtime/paths.js";
+import { type ConversationService } from "../../conversations/service.js";
 
-interface ConversationStatRow {
-  date: string;
-  profile_name: string;
-  conversation_count: number;
-  message_count: number;
-  total_input_tokens: number;
-  total_output_tokens: number;
+function readNumber(row: Record<string, unknown> | undefined | null, key: string): number {
+  const value = row?.[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
 }
 
-interface RunUsageRow {
-  date: string;
-  profile_name: string;
-  model: string;
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_tokens: number;
-  cache_read_tokens: number;
-  run_count: number;
+function readString(row: Record<string, unknown> | undefined | null, key: string): string | undefined {
+  const value = row?.[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function startOfUtcDay(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function differenceInUtcDays(from: Date, to: Date): number {
+  return Math.floor((to.getTime() - from.getTime()) / 86_400_000);
+}
+
+function formatDateOnly(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function parseDateOnly(value: string | undefined): Date | null {
+  if (!value) return null;
+  const match = /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})$/u.exec(value.trim());
+  if (!match?.groups) return null;
+  const year = Number(match.groups.year);
+  const month = Number(match.groups.month);
+  const day = Number(match.groups.day);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+function clampDays(days: number | undefined): number {
+  if (!Number.isFinite(days ?? NaN)) return 30;
+  return Math.max(1, Math.min(30, Math.trunc(days ?? 30)));
+}
+
+interface UsageRange {
+  fromDate: string;
+  toDate: string;
+  fromInclusive: string;
+  toExclusive: string;
+  days: number;
+  dates: string[];
+}
+
+function normalizeUsageRange(filter: { days?: number; from?: string; to?: string }): UsageRange {
+  const today = startOfUtcDay(new Date());
+  const parsedTo = parseDateOnly(filter.to) ?? today;
+  const to = parsedTo > today ? today : parsedTo;
+  const requestedDays = clampDays(filter.days);
+  const parsedFrom = parseDateOnly(filter.from);
+  const from = parsedFrom ?? addUtcDays(to, -(requestedDays - 1));
+  const normalizedFrom = differenceInUtcDays(from, to) > 29 ? addUtcDays(to, -29) : from;
+  const orderedFrom = normalizedFrom > to ? to : normalizedFrom;
+  const days = differenceInUtcDays(orderedFrom, to) + 1;
+  return {
+    fromDate: formatDateOnly(orderedFrom),
+    toDate: formatDateOnly(to),
+    fromInclusive: `${formatDateOnly(orderedFrom)}T00:00:00.000Z`,
+    toExclusive: `${formatDateOnly(addUtcDays(to, 1))}T00:00:00.000Z`,
+    days,
+    dates: Array.from({ length: days }, (_v, i) => formatDateOnly(addUtcDays(orderedFrom, i))),
+  };
+}
+
+function runUsageWhereClause(filter: { from?: string; to?: string; model?: string; profile?: string }): {
+  sql: string;
+  params: unknown[];
+} {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+  if (filter.from) { conditions.push("completed_at >= ?"); params.push(filter.from); }
+  if (filter.to) { conditions.push("completed_at < ?"); params.push(filter.to); }
+  if (filter.model) { conditions.push("model = ?"); params.push(filter.model); }
+  if (filter.profile) { conditions.push("(profile_name_snapshot = ? OR profile = ?)"); params.push(filter.profile, filter.profile); }
+  return { sql: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "", params };
+}
+
+function readLinkUsageStatistics(
+  db: Database,
+  filter: { days?: number; from?: string; to?: string; model?: string; profile?: string },
+): Record<string, unknown> {
+  const range = normalizeUsageRange(filter);
+  const where = runUsageWhereClause({ ...filter, from: range.fromInclusive, to: range.toExclusive });
+
+  const totalsRow = db.prepare(`
+    SELECT
+      COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+      COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(total_tokens), 0)  AS total_tokens,
+      COALESCE(SUM(message_count), 0) AS message_count,
+      COUNT(*)                        AS run_count,
+      COUNT(DISTINCT conversation_id) AS conversation_count,
+      COUNT(DISTINCT CASE WHEN model IS NOT NULL AND model <> '' THEN model END) AS model_count,
+      MAX(updated_at)                 AS updated_at
+    FROM run_usage_facts ${where.sql}
+  `).get(...where.params) as Record<string, unknown>;
+
+  const dailyRows = db.prepare(`
+    SELECT
+      substr(completed_at, 1, 10)     AS date,
+      COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+      COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(total_tokens), 0)  AS total_tokens,
+      COALESCE(SUM(message_count), 0) AS message_count,
+      COUNT(*)                        AS run_count
+    FROM run_usage_facts ${where.sql}
+    GROUP BY substr(completed_at, 1, 10)
+    ORDER BY date ASC
+  `).all(...where.params) as Record<string, unknown>[];
+
+  const modelRows = db.prepare(`
+    SELECT
+      COALESCE(NULLIF(model, ''), 'unknown') AS model,
+      provider,
+      COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+      COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(total_tokens), 0)  AS total_tokens,
+      COALESCE(SUM(message_count), 0) AS message_count,
+      COUNT(*)                        AS run_count
+    FROM run_usage_facts ${where.sql}
+    GROUP BY COALESCE(NULLIF(model, ''), 'unknown'), provider
+    HAVING SUM(total_tokens) > 0
+    ORDER BY total_tokens DESC, run_count DESC, model ASC
+    LIMIT 12
+  `).all(...where.params) as Record<string, unknown>[];
+
+  const profileRows = db.prepare(`
+    SELECT
+      MAX(NULLIF(profile_uid, '')) AS profile_uid,
+      COALESCE(
+        NULLIF(profile_name_snapshot, ''),
+        NULLIF(profile, ''),
+        NULLIF(profile_uid, ''),
+        'unknown'
+      ) AS profile,
+      COALESCE(SUM(input_tokens), 0)  AS input_tokens,
+      COALESCE(SUM(output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(total_tokens), 0)  AS total_tokens,
+      COALESCE(SUM(message_count), 0) AS message_count,
+      COUNT(*)                        AS run_count
+    FROM run_usage_facts ${where.sql}
+    GROUP BY COALESCE(
+      NULLIF(profile_name_snapshot, ''),
+      NULLIF(profile, ''),
+      NULLIF(profile_uid, ''),
+      'unknown'
+    )
+    HAVING SUM(total_tokens) > 0
+    ORDER BY total_tokens DESC, run_count DESC, profile ASC
+    LIMIT 12
+  `).all(...where.params) as Record<string, unknown>[];
+
+  const dailyByDate = new Map(dailyRows.map((row) => [readString(row, "date") ?? "", row]));
+
+  return {
+    range: { from: range.fromDate, to: range.toDate, days: range.days },
+    totals: {
+      input_tokens: readNumber(totalsRow, "input_tokens"),
+      output_tokens: readNumber(totalsRow, "output_tokens"),
+      total_tokens: readNumber(totalsRow, "total_tokens"),
+      message_count: readNumber(totalsRow, "message_count"),
+      run_count: readNumber(totalsRow, "run_count"),
+      conversation_count: readNumber(totalsRow, "conversation_count"),
+      model_count: readNumber(totalsRow, "model_count"),
+    },
+    daily: range.dates.map((date) => {
+      const row = dailyByDate.get(date);
+      return {
+        date,
+        input_tokens: readNumber(row, "input_tokens"),
+        output_tokens: readNumber(row, "output_tokens"),
+        total_tokens: readNumber(row, "total_tokens"),
+        message_count: readNumber(row, "message_count"),
+        run_count: readNumber(row, "run_count"),
+      };
+    }),
+    models: modelRows.map((row) => ({
+      model: readString(row, "model") ?? "unknown",
+      ...(readString(row, "provider") ? { provider: readString(row, "provider") } : {}),
+      input_tokens: readNumber(row, "input_tokens"),
+      output_tokens: readNumber(row, "output_tokens"),
+      total_tokens: readNumber(row, "total_tokens"),
+      message_count: readNumber(row, "message_count"),
+      run_count: readNumber(row, "run_count"),
+    })),
+    profiles: profileRows.map((row) => ({
+      ...(readString(row, "profile_uid") ? { profile_uid: readString(row, "profile_uid") } : {}),
+      profile: readString(row, "profile") ?? "unknown",
+      input_tokens: readNumber(row, "input_tokens"),
+      output_tokens: readNumber(row, "output_tokens"),
+      total_tokens: readNumber(row, "total_tokens"),
+      message_count: readNumber(row, "message_count"),
+      run_count: readNumber(row, "run_count"),
+    })),
+    ...(readString(totalsRow, "updated_at") ? { updated_at: readString(totalsRow, "updated_at") } : {}),
+  };
 }
 
 export function createStatisticsRouter(options: {
   db: Database;
   paths: RuntimePaths;
+  conversations: ConversationService;
 }): Router {
-  const router = new Router({ prefix: "/api/v1/statistics" });
-  const paths = options.paths;
+  const { db, paths, conversations } = options;
+  const router = new Router();
+
   const auth = async (ctx: Context, next: () => Promise<void>) => {
     await authenticateRequest(ctx, paths);
     await next();
   };
 
-  router.get("/conversations", auth, (ctx: Context) => {
-    const { from, to, profile } = ctx.query;
-    let query = `SELECT date, profile_name, conversation_count, message_count,
-      total_input_tokens, total_output_tokens
-      FROM conversation_stats WHERE 1=1`;
-    const params: string[] = [];
-    if (typeof from === "string") {
-      query += " AND date >= ?";
-      params.push(from);
-    }
-    if (typeof to === "string") {
-      query += " AND date <= ?";
-      params.push(to);
-    }
-    if (typeof profile === "string" && profile) {
-      query += " AND profile_name = ?";
-      params.push(profile);
-    }
-    query += " ORDER BY date DESC, profile_name ASC LIMIT 500";
-    const rows = options.db.prepare(query).all(...params) as ConversationStatRow[];
-    ctx.body = { rows };
+  router.get("/api/v1/statistics", auth, async (ctx: Context) => {
+    ctx.set("cache-control", "no-store");
+    const statistics = await conversations.getStatistics({
+      profileName: typeof ctx.query.profile === "string" ? ctx.query.profile : undefined,
+      profileUid: typeof ctx.query.profile_uid === "string" ? ctx.query.profile_uid : undefined,
+    });
+    ctx.body = { ok: true, statistics };
   });
 
-  router.get("/usage", auth, (ctx: Context) => {
-    const { from, to, profile, model } = ctx.query;
-    let query = `SELECT date, profile_name, model,
-      input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, run_count
-      FROM run_usage_facts WHERE 1=1`;
-    const params: string[] = [];
-    if (typeof from === "string") {
-      query += " AND date >= ?";
-      params.push(from);
-    }
-    if (typeof to === "string") {
-      query += " AND date <= ?";
-      params.push(to);
-    }
-    if (typeof profile === "string" && profile) {
-      query += " AND profile_name = ?";
-      params.push(profile);
-    }
-    if (typeof model === "string" && model) {
-      query += " AND model = ?";
-      params.push(model);
-    }
-    query += " ORDER BY date DESC, profile_name ASC, model ASC LIMIT 1000";
-    const rows = options.db.prepare(query).all(...params) as RunUsageRow[];
-    ctx.body = { rows };
-  });
-
-  router.post("/conversations/upsert", auth, (ctx: Context) => {
-    const body = ctx.request.body as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") {
-      ctx.status = 400;
-      ctx.body = { error: "Invalid body" };
-      return;
-    }
-    const { date, profileName, conversationCount, messageCount, totalInputTokens, totalOutputTokens } = body;
-    if (!date || !profileName) {
-      ctx.status = 400;
-      ctx.body = { error: "Missing required fields: date, profileName" };
-      return;
-    }
-    options.db
-      .prepare(
-        `INSERT INTO conversation_stats
-          (date, profile_name, conversation_count, message_count, total_input_tokens, total_output_tokens)
-          VALUES (?, ?, ?, ?, ?, ?)
-          ON CONFLICT (date, profile_name) DO UPDATE SET
-            conversation_count = excluded.conversation_count,
-            message_count = excluded.message_count,
-            total_input_tokens = excluded.total_input_tokens,
-            total_output_tokens = excluded.total_output_tokens`,
-      )
-      .run(
-        date,
-        profileName,
-        Number(conversationCount) || 0,
-        Number(messageCount) || 0,
-        Number(totalInputTokens) || 0,
-        Number(totalOutputTokens) || 0,
-      );
-    ctx.body = { ok: true };
-  });
-
-  router.post("/usage/upsert", auth, (ctx: Context) => {
-    const body = ctx.request.body as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") {
-      ctx.status = 400;
-      ctx.body = { error: "Invalid body" };
-      return;
-    }
-    const { date, profileName, model, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, runCount } =
-      body;
-    if (!date || !profileName || !model) {
-      ctx.status = 400;
-      ctx.body = { error: "Missing required fields: date, profileName, model" };
-      return;
-    }
-    options.db
-      .prepare(
-        `INSERT INTO run_usage_facts
-          (date, profile_name, model, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, run_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT (date, profile_name, model) DO UPDATE SET
-            input_tokens = excluded.input_tokens,
-            output_tokens = excluded.output_tokens,
-            cache_creation_tokens = excluded.cache_creation_tokens,
-            cache_read_tokens = excluded.cache_read_tokens,
-            run_count = excluded.run_count`,
-      )
-      .run(
-        date,
-        profileName,
-        model,
-        Number(inputTokens) || 0,
-        Number(outputTokens) || 0,
-        Number(cacheCreationTokens) || 0,
-        Number(cacheReadTokens) || 0,
-        Number(runCount) || 0,
-      );
-    ctx.body = { ok: true };
+  router.get("/api/v1/statistics/usage", auth, (ctx: Context) => {
+    ctx.set("cache-control", "no-store");
+    const days = typeof ctx.query.days === "string" ? Number.parseInt(ctx.query.days, 10) : undefined;
+    const usage = readLinkUsageStatistics(db, {
+      days: Number.isFinite(days) ? days : undefined,
+      from: typeof ctx.query.from === "string" ? ctx.query.from : undefined,
+      to: typeof ctx.query.to === "string" ? ctx.query.to : undefined,
+      model: typeof ctx.query.model === "string" ? ctx.query.model : undefined,
+      profile: typeof ctx.query.profile === "string" ? ctx.query.profile : undefined,
+    });
+    ctx.body = { ok: true, usage };
   });
 
   return router;

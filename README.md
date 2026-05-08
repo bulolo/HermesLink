@@ -1,10 +1,10 @@
 # @bulolo/hermes-link
 
-本地伴随服务，为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供移动端接入能力，支持局域网直连。
+本地伴随服务，为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供移动端接入能力，支持公网、局域网直连。
 
 ## 概述
 
-Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http://0.0.0.0:52379`。客户端（App / 浏览器）通过局域网直接访问，对话、文件、指令均在本地处理，数据不经过外部服务器。
+Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http://0.0.0.0:52379`。客户端（App / 浏览器）通过公网或局域网直接访问，对话、文件、指令均在本地处理，数据不经过外部服务器。
 
 所有 API 请求分为两类：
 
@@ -306,8 +306,129 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/statistics` | 全局使用统计 |
-| GET | `/api/v1/statistics/usage` | Token 用量统计（`?days=7`） |
+| GET | `/api/v1/statistics` | 全局使用统计（对话、消息数等） |
+| GET | `/api/v1/statistics/usage` | Token 用量统计（`?days=7&from=2026-05-01&to=2026-05-08&model=xxx&profile=xxx`） |
+
+### 模型（Models）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/models` | 列出可用模型（来自 Hermes API Server，OpenAI 兼容格式） |
+| GET | `/api/v1/model-configs` | 列出全局模型配置 |
+| POST | `/api/v1/model-configs` | 新增全局模型配置 |
+| PATCH | `/api/v1/model-configs/defaults` | 更新默认模型配置 |
+| DELETE | `/api/v1/model-configs` | 删除全局模型配置 |
+| GET | `/api/v1/profiles/:name/model-configs` | 列出指定 Profile 的模型配置 |
+| POST | `/api/v1/profiles/:name/model-configs` | 新增 Profile 的模型配置 |
+| PATCH | `/api/v1/profiles/:name/model-configs/defaults` | 更新 Profile 默认模型 |
+| DELETE | `/api/v1/profiles/:name/model-configs` | 删除 Profile 的模型配置 |
+
+### Profiles
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/profiles` | 列出所有 Profile 名称 |
+| POST | `/api/v1/profiles` | 创建新 Profile（异步，返回 202） |
+| PATCH | `/api/v1/profiles/:name` | 重命名（`{"name":"new-name"}`）或更新元数据 |
+| DELETE | `/api/v1/profiles/:name` | 删除 Profile |
+| GET | `/api/v1/profiles/catalog` | 完整目录（包含各 Profile 的 capabilities、permissions、modelConfigs）|
+| GET | `/api/v1/profile-creation/status` | 查询创建进度 |
+| GET | `/api/v1/profile-creation/events` | 创建进度 SSE 流 |
+| GET | `/api/v1/profiles/:name/status` | Profile 状态（存在性、API Key 配置等） |
+| GET | `/api/v1/profiles/:name/statistics` | Profile 的对话统计 |
+| GET | `/api/v1/profiles/:name/skills` | 列出 Profile Skills（`?include_disabled=true`）|
+| PATCH | `/api/v1/profiles/:name/skills/:skillName` | 启用/禁用 Skill（`{"enabled":true}`） |
+| GET | `/api/v1/profiles/:name/memory` | 查看记忆（USER.md + MEMORY.md） |
+| POST | `/api/v1/profiles/:name/memory/entries` | 新增记忆条目（`{"target":"memory","content":"..."}`)  |
+| PATCH | `/api/v1/profiles/:name/memory/entries` | 替换记忆条目（`{"target":"memory","match":"旧内容","content":"新内容"}`）|
+| DELETE | `/api/v1/profiles/:name/memory/entries` | 删除记忆条目（`{"target":"memory","match":"匹配内容"}`）|
+| DELETE | `/api/v1/profiles/:name/memory` | 重置记忆（`{"target":"memory\|user\|all"}`）|
+| PATCH | `/api/v1/profiles/:name/memory/settings` | 更新记忆 Provider 设置 |
+| PATCH | `/api/v1/profiles/:name/memory/provider` | 切换记忆 Provider（`{"provider":"built-in"}`）|
+| GET | `/api/v1/profiles/:name/permissions` | 查看权限配置 |
+| PATCH | `/api/v1/profiles/:name/permissions` | 更新权限配置 |
+| GET | `/api/v1/profiles/:name/tool-configs/:toolKey` | 查看工具配置（如 `Bash`、`Computer`）|
+| PATCH | `/api/v1/profiles/:name/tool-configs/:toolKey` | 更新工具配置 |
+| GET | `/api/v1/profiles/:name/model-configs` | 列出 Profile 的模型配置 |
+| POST | `/api/v1/profiles/:name/model-configs` | 新增 Profile 的模型配置 |
+| PATCH | `/api/v1/profiles/:name/model-configs/defaults` | 更新 Profile 默认模型 |
+| DELETE | `/api/v1/profiles/:name/model-configs` | 删除 Profile 的模型配置 |
+| GET | `/api/v1/profiles/:name/cron-jobs` | 列出 Profile 的定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs` | 创建 Profile 的定时任务 |
+| GET | `/api/v1/profiles/:name/cron-jobs/:jobId` | 查看定时任务详情 |
+| PATCH | `/api/v1/profiles/:name/cron-jobs/:jobId` | 更新定时任务 |
+| DELETE | `/api/v1/profiles/:name/cron-jobs/:jobId` | 删除定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/pause` | 暂停定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/resume` | 恢复定时任务 |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/run` | 立即执行定时任务 |
+
+记忆 `target` 字段：`"memory"`（Agent 笔记，MEMORY.md）或 `"user"`（用户信息，USER.md）。
+
+### Cron Jobs（定时任务）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/cron-jobs` | 列出所有 Profile 的定时任务汇总 |
+
+### Runs（执行任务）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/runs` | 向 Hermes Agent 提交执行任务（返回 202） |
+| GET | `/api/v1/runs/:runId/events` | 订阅执行事件流（SSE 代理） |
+| POST | `/api/v1/runs/:runId/cancel` | 取消执行任务 |
+
+**POST `/api/v1/runs`** Body：
+
+```json
+{
+  "input": "请帮我整理 ~/Downloads 目录",
+  "profile": "default",
+  "instructions": "可选的系统指令",
+  "session_id": "可选的会话 ID",
+  "conversation_history": []
+}
+```
+
+响应（202）：
+
+```json
+{
+  "run_id": "run_xxx",
+  "fallback": false
+}
+```
+
+### 更新管理（Updates）
+
+#### Hermes Agent 更新
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/hermes/update-check` | 检查 Hermes Agent 是否有新版本 |
+| GET | `/api/v1/hermes/update/status` | 查询 Hermes 更新进度 |
+| POST | `/api/v1/hermes/update` | 触发 Hermes Agent 更新 |
+| GET | `/api/v1/hermes/update/events` | 更新进度 SSE 流 |
+
+#### Link 自身更新
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/link/update-check` | 检查 Link 是否有新版本 |
+| GET | `/api/v1/link/update/status` | 查询 Link 更新进度 |
+| POST | `/api/v1/link/update` | 触发 Link 自更新（`{"version":"0.3.0"}`）|
+| GET | `/api/v1/link/update/events` | 更新进度 SSE 流 |
+
+### 系统（System）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/system/status` | 系统详情（版本、自启状态、网络环境）|
+| GET | `/api/v1/system/version` | 仅返回 Link 版本号 |
+| POST | `/api/v1/system/autostart/enable` | 开启开机自启 |
+| POST | `/api/v1/system/autostart/disable` | 关闭开机自启 |
+| GET | `/api/v1/system/logs` | 最近 Link 日志 |
+| GET | `/api/v1/system/logs/gateway` | 最近 Gateway 日志 |
 
 ### 错误响应格式
 
