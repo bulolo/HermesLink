@@ -1,6 +1,31 @@
+<div align="center">
+
 # hermes-link
 
-本地伴随服务，为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供 API 接入能力，支持公网、局域网直连。
+**Hermes Agent 本地接入层**
+
+为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供完整的客户端 API、多设备鉴权与对话管理，支持局域网 / 公网直连。
+
+[![npm](https://img.shields.io/npm/v/@bulolo/hermes-link?color=cb3837&logo=npm)](https://www.npmjs.com/package/@bulolo/hermes-link)
+[![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](#)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#)
+
+简体中文 | [English](./README.en.md)
+
+[npm 包](https://www.npmjs.com/package/@bulolo/hermes-link)
+
+<p>
+  <a href="https://github.com/bulolo/HermesLink">
+    <img src="https://img.shields.io/badge/⭐_Star-项目-yellow?style=for-the-badge&logo=github" alt="Star 项目"/>
+  </a>
+</p>
+
+**如果这个项目对你有帮助，请点击右上角 ⭐ Star 支持一下，这是对开发者最大的鼓励！**
+
+</div>
+
+---
 
 ## 概述
 
