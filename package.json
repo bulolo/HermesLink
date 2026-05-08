@@ -1,6 +1,6 @@
 {
   "name": "@bulolo/hermes-link",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local companion service and CLI for Hermes Agent, enabling mobile and LAN access",
   "license": "MIT",
   "type": "module",
