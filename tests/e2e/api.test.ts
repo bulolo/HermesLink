@@ -148,7 +148,7 @@ describe("Error handling", () => {
   });
 
   it("Invalid token returns 401 with descriptive code", async () => {
-    const res = await get("/api/v1/status", "hpat_totally_invalid_token");
+    const res = await get("/api/v1/status", "hlat_totally_invalid_token");
     expect(res.status).toBe(401);
     const body = await json(res);
     expect(body.ok).toBe(false);
@@ -182,8 +182,8 @@ describe("Auth flow", () => {
     expect(body.ok).toBe(true);
     const at = body.access_token as Record<string, string>;
     const rt = body.refresh_token as Record<string, string>;
-    expect(at.token).toMatch(/^hpat_/);
-    expect(rt.token).toMatch(/^hprt_/);
+    expect(at.token).toMatch(/^hlat_/);
+    expect(rt.token).toMatch(/^hlrt_/);
     // IMPORTANT: token rotation — update state so subsequent tests use the new tokens
     state.accessToken = at.token;
     state.refreshToken = rt.token;
