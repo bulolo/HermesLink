@@ -247,6 +247,8 @@ Config file is at `~/.hermeslink/config.json`.
 
 Service listens on `http://0.0.0.0:18642` by default. All authenticated endpoints use a Bearer Token with the `hlat_` prefix.
 
+Interactive Swagger UI: **`http://localhost:18642/api/docs`**
+
 ### Token Types
 
 | Token | Prefix | Expiry | Purpose |
@@ -606,24 +608,22 @@ Uninstalling the npm package does not delete this directory — reinstalling reu
 ## Development
 
 ```bash
-# Install dependencies and build
+# Install dependencies
 npm install
+
+# Start dev server — watches source, auto-rebuilds and restarts on every change
+npm run dev
+
+# Production build
 npm run build
-
-# Run in foreground (for debugging)
-npm run dev:run
-# or
-node dist/cli/index.js daemon --foreground
-
-# Watch mode (auto-rebuild on source changes, restart manually)
-npm run dev:watch     # terminal 1: watch and rebuild
-node dist/cli/index.js daemon --foreground  # terminal 2: run the service
 
 # TypeScript type check
 npm run check
 ```
 
 After starting, visit `http://localhost:18642/api/v1/bootstrap` to verify the service is running.
+
+Interactive API docs (Swagger UI) are available at `http://localhost:18642/api/docs`.
 
 ## License
 

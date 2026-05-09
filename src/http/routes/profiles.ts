@@ -33,6 +33,7 @@ import {
   removeHermesMemoryEntry,
   resetHermesMemoryStore,
   saveHermesMemorySettings,
+  saveHermesMemoryProviderSettings,
   setHermesMemoryProvider,
   readMemoryTarget,
   readRequiredMemoryContent,
@@ -397,6 +398,18 @@ export function createProfilesRouter(options: {
     await getHermesProfileStatus(ctx.params.name, paths);
     try {
       ctx.body = await setHermesMemoryProvider(ctx.params.name, body.provider);
+    } catch (error) {
+      throw toMemoryHttpError(error);
+    }
+  });
+
+  // PATCH /api/v1/profiles/:name/memory/providers/:provider/settings
+  router.patch("/api/v1/profiles/:name/memory/providers/:provider/settings", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    const body = await readJsonBody(ctx.req);
+    await getHermesProfileStatus(ctx.params.name, paths);
+    try {
+      ctx.body = await saveHermesMemoryProviderSettings(ctx.params.name, ctx.params.provider, readMemorySettingsPatch(body));
     } catch (error) {
       throw toMemoryHttpError(error);
     }

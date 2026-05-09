@@ -238,6 +238,10 @@ export async function saveHermesMemorySettings(_profileName: string, _patch: Rec
   throw new HermesMemoryError("memory_settings_builtin_only", "当前 Profile 使用 built-in memory，没有可保存的外部 provider 设置。");
 }
 
+export async function saveHermesMemoryProviderSettings(_profileName: string, _provider: string, _patch: Record<string, unknown>): Promise<Record<string, unknown>> {
+  throw new HermesMemoryError("memory_settings_builtin_only", "当前 Profile 使用 built-in memory，没有可保存的外部 provider 设置。");
+}
+
 export async function setHermesMemoryProvider(_profileName: string, _provider: unknown): Promise<Record<string, unknown>> {
   throw new HermesMemoryError("memory_provider_builtin_only", "当前仅支持 built-in memory provider。");
 }

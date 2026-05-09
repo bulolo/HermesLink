@@ -251,6 +251,8 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 服务默认监听 `http://0.0.0.0:18642`。所有需要鉴权的接口均使用 Bearer Token（`hlat_` 前缀）。
 
+交互式 Swagger 文档：**`http://localhost:18642/api/docs`**
+
 ### Token 说明
 
 | Token | 前缀 | 有效期 | 用途 |
@@ -716,18 +718,22 @@ hermeslink autostart off
 ## 开发调试
 
 ```bash
-# 安装依赖并构建
+# 安装依赖
 npm install
+
+# 启动开发服务器 — 监听源码变化，自动编译并重启 daemon
+npm run dev
+
+# 生产构建
 npm run build
 
-# watch 模式（自动重编译，需手动重启服务）
-npm run dev:watch     # 终端1：监听源码变化自动 build
-node dist/cli/index.js pair
 # TypeScript 类型检查
 npm run check
 ```
 
 服务运行后可访问 `http://localhost:18642/api/v1/bootstrap` 验证是否正常。
+
+交互式 API 文档（Swagger UI）：`http://localhost:18642/api/docs`
 
 ## License
 

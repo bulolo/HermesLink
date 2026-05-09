@@ -19,6 +19,7 @@ import { createProfilesRouter } from "./routes/profiles.js";
 import { createCronJobsRouter } from "./routes/cron-jobs.js";
 import { createRunsRouter } from "./routes/runs.js";
 import { createUpdatesRouter } from "./routes/updates.js";
+import { createDocsRouter } from "./routes/docs.js";
 import { openSqliteDatabase } from "../storage/sqlite.js";
 import { initLinkDatabase } from "../storage/link-database.js";
 import { ConversationService } from "../conversations/service.js";
@@ -153,6 +154,20 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
     };
   });
 
+  // Internal delivery route (loopback only)
+  rootRouter.post("/internal/deliver", async (ctx) => {
+    const addr = ctx.req.socket.remoteAddress;
+    if (addr !== "127.0.0.1" && addr !== "::1" && addr !== "::ffff:127.0.0.1") {
+      throw new LinkHttpError(403, "internal_route_forbidden", "internal route is only available on loopback");
+    }
+    const body = ctx.request.body as Record<string, unknown>;
+    const stagingDir = typeof body?.staging_dir === "string" ? body.staging_dir : typeof body?.stagingDir === "string" ? body.stagingDir : null;
+    if (!stagingDir) {
+      throw new LinkHttpError(400, "delivery_staging_required", "delivery staging directory is required");
+    }
+    ctx.body = { ok: true, staged_count: 0 };
+  });
+
   app.use(rootRouter.routes());
   app.use(rootRouter.allowedMethods());
 
@@ -215,6 +230,11 @@ export async function startLinkService(options: LinkServiceOptions): Promise<Lin
   const updatesRouter = createUpdatesRouter({ paths, logger });
   app.use(updatesRouter.routes());
   app.use(updatesRouter.allowedMethods());
+
+  // API docs (no auth)
+  const docsRouter = createDocsRouter();
+  app.use(docsRouter.routes());
+  app.use(docsRouter.allowedMethods());
 
   // Start HTTP server
   const listenHost = process.env.HERMESLINK_LISTEN_HOST ?? "0.0.0.0";

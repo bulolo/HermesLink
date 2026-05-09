@@ -1,6 +1,6 @@
 {
   "name": "@bulolo/hermes-link",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "Provides full client API, multi-device auth and conversation management for Hermes Agent, with LAN and internet connectivity.",
   "author": "Bulolo",
   "license": "MIT",
@@ -32,9 +32,7 @@
   "scripts": {
     "build": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --dts --clean",
     "check": "tsc --noEmit",
-    "dev": "tsx src/cli/index.ts",
-    "dev:run": "npm run build && node ./dist/cli/index.js daemon --foreground",
-    "dev:watch": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --watch",
+    "dev": "tsup src/cli/index.ts src/http/app.ts --format esm --target node20 --watch --onSuccess \"node ./dist/cli/index.js daemon --foreground\"",
     "preinstall": "node ./scripts/check-node-version.mjs",
     "postinstall": "node ./scripts/postinstall.mjs",
     "prepack": "npm run build",
@@ -48,6 +46,7 @@
     "generator-function": "1.x"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@koa/cors": "^5.0.0",
     "@koa/router": "^15.4.0",
     "better-sqlite3": "^12.9.0",
