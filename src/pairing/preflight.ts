@@ -16,6 +16,9 @@ export interface PairingQrPayload {
   session_id: string;
   code: string;
   preferred_urls: string[];
+  lan_ips: string[];
+  public_ipv4s: string[];
+  public_ipv6s: string[];
 }
 
 export interface PairingPreflightResult {
@@ -87,6 +90,9 @@ export async function runPairingPreflight(options: {
     session_id: sessionId,
     code: token.token,
     preferred_urls: preferredUrls,
+    lan_ips: routes?.lanIps ?? [],
+    public_ipv4s: routes?.publicIpv4s ?? [],
+    public_ipv6s: routes?.publicIpv6s ?? [],
   };
 
   const pageUrl = buildLocalPairingPageUrl(preferredUrls[0] ?? `http://127.0.0.1:${options.config.port}`, sessionId, token.token);
@@ -104,7 +110,7 @@ export async function runPairingPreflight(options: {
   };
 }
 
-export function buildLocalPairingPageUrl(baseUrl: string, sessionId: string, connectToken: string): string {
-  const qs = new URLSearchParams({ session_id: sessionId, connect_token: connectToken });
+export function buildLocalPairingPageUrl(baseUrl: string, sessionId: string, _connectToken?: string): string {
+  const qs = new URLSearchParams({ session_id: sessionId });
   return `${baseUrl}/pair?${qs.toString()}`;
 }

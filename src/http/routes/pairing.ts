@@ -52,7 +52,7 @@ function pairingClaimPath(sessionId: string, paths: RuntimePaths): string {
   return path.join(paths.pairingDir, `${Buffer.from(sessionId).toString("base64url")}.claimed.json`);
 }
 
-async function readPairingSession(sessionId: string, paths: RuntimePaths): Promise<PairingSession | null> {
+export async function readPairingSession(sessionId: string, paths: RuntimePaths): Promise<PairingSession | null> {
   const record = await readJsonFile(pairingSessionPath(sessionId, paths));
   if (
     !record ||
@@ -75,12 +75,12 @@ async function readPairingSession(sessionId: string, paths: RuntimePaths): Promi
   };
 }
 
-async function isPairingSessionClaimed(sessionId: string, paths: RuntimePaths): Promise<boolean> {
+export async function isPairingSessionClaimed(sessionId: string, paths: RuntimePaths): Promise<boolean> {
   const claimRecord = await readJsonFile(pairingClaimPath(sessionId, paths));
   return claimRecord !== null;
 }
 
-function isPairingSessionExpired(session: PairingSession): boolean {
+export function isPairingSessionExpired(session: PairingSession): boolean {
   const ms = Date.parse(session.expires_at);
   return !Number.isFinite(ms) || Date.now() >= ms;
 }

@@ -34,9 +34,9 @@ export async function discoverRouteCandidates(options: {
   const publicIpv4s = unique(publicIps.publicIpv4s.filter(isUsablePublicIpv4)).slice(0, MAX_PUBLIC_IPV4S);
   const publicIpv6s = unique(publicIps.publicIpv6s.filter(isUsablePublicIpv6)).slice(0, MAX_PUBLIC_IPV6S);
   const preferredUrls = [
+    ...lanIps.map((ip) => buildDirectUrl(ip, options.port)),
     ...publicIpv4s.map((ip) => buildDirectUrl(ip, options.port)),
     ...publicIpv6s.map((ip) => buildDirectUrl(ip, options.port)),
-    ...lanIps.map((ip) => buildDirectUrl(ip, options.port)),
   ];
   return { lanIps, publicIpv4s, publicIpv6s, preferredUrls, environment };
 }

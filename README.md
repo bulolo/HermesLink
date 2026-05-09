@@ -2,99 +2,99 @@
 
 # hermes-link
 
-**Hermes Agent 本地接入层**
+**Local access layer for Hermes Agent**
 
-为 [Hermes Agent](https://github.com/nousresearch/hermes-agent) 提供完整的客户端 API、多设备鉴权与对话管理，支持局域网 / 公网直连。
+Provides full client API, multi-device auth and conversation management for [Hermes Agent](https://github.com/nousresearch/hermes-agent), with LAN and internet connectivity.
 
 [![npm](https://img.shields.io/npm/v/@bulolo/hermes-link?color=cb3837&logo=npm)](https://www.npmjs.com/package/@bulolo/hermes-link)
 [![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue)](#)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#)
 
-简体中文 | [English](./README.en.md)
+[中文](./README.zh-CN.md) | **English**
 
-[npm 包](https://www.npmjs.com/package/@bulolo/hermes-link)
+[npm package](https://www.npmjs.com/package/@bulolo/hermes-link)
 
 <p>
   <a href="https://github.com/bulolo/HermesLink">
-    <img src="https://img.shields.io/badge/⭐_Star-项目-yellow?style=for-the-badge&logo=github" alt="Star 项目"/>
+    <img src="https://img.shields.io/badge/⭐_Star-Project-yellow?style=for-the-badge&logo=github" alt="Star Project"/>
   </a>
 </p>
 
-**如果这个项目对你有帮助，请点击右上角 ⭐ Star 支持一下，这是对开发者最大的鼓励！**
+**If this project helps you, please ⭐ Star it — it means a lot to the developer!**
 
 </div>
 
 ---
 
-## 概述
+## Overview
 
-Hermes Link 是一个运行在本机的后台 HTTP 服务，默认监听 `http://0.0.0.0:18642`。客户端（App / 浏览器）通过公网或局域网直接访问，对话、文件、指令均在本地处理，数据不经过外部服务器。
+Hermes Link is a background HTTP service running on your local machine, listening on `http://0.0.0.0:18642` by default. Clients (App / browser) connect directly over LAN or the internet — all conversations, files and commands are processed locally, with no data leaving your machine.
 
-所有 API 请求分为两类：
+All API requests fall into two categories:
 
-- **无需鉴权**：`/pair`、`/api/v1/bootstrap`
-- **需要 Bearer Token**：其余接口均需 `Authorization: Bearer hlat_xxx`，通过配对流程获取
+- **No auth required**: `/pair`, `/api/v1/bootstrap`
+- **Bearer Token required**: all other endpoints require `Authorization: Bearer hlat_xxx`, obtained through the pairing flow
 
-## 为什么需要 HermesLink？
+## Why HermesLink?
 
-Hermes Agent 内置了一个 API Server（端口 8642），但它只有 **12 个接口**：
+Hermes Agent ships with a built-in API Server (port 8642), but it only exposes **12 endpoints**:
 
-| 功能 | Hermes API Server `:8642` | HermesLink `:18642` |
-|------|:---:|:---:|
-| 接口数量 | 12 | **97** |
-| Agent 执行 / 事件流 | ✓ | ✓（代理转发） |
-| 模型列表 / 定时任务 | ✓ | ✓（代理转发） |
-| 认证 | 单一共享 Key | 设备独立 Token，可单独吊销 |
-| 设备配对 | — | ✓ 二维码 / 多设备管理 |
-| 对话存储 | — | ✓ 本地历史 + 附件 |
-| Profile & Memory 管理 | — | ✓ 多 Profile、记忆、权限、工具开关 |
-| 使用统计 | — | ✓ Token 用量按日期 / 模型 / Profile |
-| 工具调用审批 | — | ✓ Approve / deny 流程 |
-| 更新管理 / 开机自启 | — | ✓ |
+| Feature | Hermes API Server `:8642` | HermesLink `:18642` |
+|---------|:---:|:---:|
+| Endpoint count | 12 | **97** |
+| Agent execution / event stream | ✓ | ✓ (proxied) |
+| Model list / Cron jobs | ✓ | ✓ (proxied) |
+| Authentication | Single shared key | Per-device token, individually revocable |
+| Device pairing | — | ✓ QR code / multi-device management |
+| Conversation storage | — | ✓ Local history + attachments |
+| Profile & Memory management | — | ✓ Multi-profile, memory, permissions, tool switches |
+| Usage statistics | — | ✓ Token usage by date / model / profile |
+| Tool call approval | — | ✓ Approve / deny flow |
+| Update management / autostart | — | ✓ |
 
-### 如何选择
+### When to use which
 
-- **只需本机脚本 / 受信任内部服务直连** → 直接用 Hermes API Server（8642）
-- **开发移动 App 或多设备接入** → 需要 HermesLink（18642）
-- **需要对话历史 / Profile / 统计等完整功能** → 需要 HermesLink（18642）
+- **Local scripts / trusted internal services calling Hermes directly** → use Hermes API Server (8642)
+- **Building a mobile app or multi-device access** → HermesLink (18642) required
+- **Need conversation history / Profile management / statistics** → HermesLink (18642) required
 
-## 工作原理
+## How It Works
 
 ```
-客户端（浏览器 / App）
+Client (browser / App)
    │
-   └──→ hermeslink (本机, 端口 18642)
+   └──→ hermeslink (local machine, port 18642)
               │
-              ├── 鉴权 / 设备管理 / 对话存储 / Profile & Memory    ← HermesLink 自身处理（~87 个接口）
+              ├── auth / device management / conversation storage / Profile & Memory  ← handled by HermesLink (~87 endpoints)
               │
-              └──→ Hermes Agent API Server (127.0.0.1:8642)         ← 仅 runs / models / cron jobs（~10 个接口）
+              └──→ Hermes Agent API Server (127.0.0.1:8642)   ← only runs / models / cron jobs (~10 endpoints)
 ```
 
-绝大多数功能由 HermesLink 独立完成，不依赖 API Server。API Server 未运行时，认证、配对、对话查询、Profile 管理等接口仍可正常使用，仅 Agent 执行、模型列表、定时任务不可用。所有数据均存储在本机，不经过外部服务器。
+The vast majority of functionality is handled by HermesLink independently, without relying on the API Server. If the API Server is not running, auth, pairing, conversation queries, and Profile management all continue to work — only Agent execution, model listing, and cron jobs become unavailable. All data is stored locally.
 
-## 环境要求
+## Requirements
 
 ### 1. Node.js >= 20.0.0
 
 ```bash
-node --version   # 需要 >= v20.0.0
+node --version   # must be >= v20.0.0
 ```
 
-如未安装，推荐通过 [nvm](https://github.com/nvm-sh/nvm) 安装：
+If not installed, use [nvm](https://github.com/nvm-sh/nvm):
 
 ```bash
 nvm install 20
 nvm use 20
 ```
 
-### 2. 启动 Hermes Agent API Server
+### 2. Start the Hermes Agent API Server
 
-Hermes Link 通过 `127.0.0.1:8642` 与本机的 **Hermes Agent API Server** 通信。
+HermesLink communicates with the **Hermes Agent API Server** at `127.0.0.1:8642`.
 
-> 如果 Hermes Agent API Server 未运行，对话、Profiles 等功能将无法使用，但认证、配对、设备管理、日志等基础接口仍可正常工作。
+> If the API Server is not running, conversation and Profile features will be unavailable, but auth, pairing, device management, and logs still work fine.
 
-在 `~/.hermes/.env` 中添加以下配置以启用 API Server：
+Add the following to `~/.hermes/.env` to enable the API Server:
 
 ```bash
 API_SERVER_ENABLED=true
@@ -104,71 +104,68 @@ API_SERVER_CORS_ORIGINS=*
 GATEWAY_ALLOW_ALL_USERS=true
 ```
 
-| 配置项 | 说明 |
-|--------|------|
-| `API_SERVER_ENABLED` | 设为 `true` 开启 API Server |
-| `API_SERVER_KEY` | 认证密钥，替换为强随机字符串 `openssl rand -hex 32` |
-| `API_SERVER_HOST` | 监听地址，`0.0.0.0` 允许本机所有网卡 |
-| `API_SERVER_CORS_ORIGINS` | CORS 来源，本地调试可设为 `*` |
+| Option | Description |
+|--------|-------------|
+| `API_SERVER_ENABLED` | Set to `true` to enable the API Server |
+| `API_SERVER_KEY` | Auth key — replace with a strong random string: `openssl rand -hex 32` |
+| `API_SERVER_HOST` | Listen address — `0.0.0.0` allows all network interfaces |
+| `API_SERVER_CORS_ORIGINS` | CORS origins — can be `*` for local development |
 
-配置完成后启动：
+Then restart:
 
 ```bash
-hermes gateway stop
-hermes gateway start
-或者
 hermes gateway restart
 ```
 
-验证是否就绪：
+Verify it's running:
 
 ```bash
 curl -s http://127.0.0.1:8642/v1/health
 ```
 
-如缺失或版本过旧：
+If missing or outdated:
 
 ```bash
 hermes update
 ```
 
-## 安装
+## Installation
 
-npm 包地址：[https://www.npmjs.com/package/@bulolo/hermes-link](https://www.npmjs.com/package/@bulolo/hermes-link)
+npm package: [https://www.npmjs.com/package/@bulolo/hermes-link](https://www.npmjs.com/package/@bulolo/hermes-link)
 
 ```bash
 npm install -g @bulolo/hermes-link
 ```
 
-> 安装后如果终端找不到 `hermeslink` 命令，说明 npm 全局 bin 目录不在 PATH 中，运行以下命令添加：
+> If the `hermeslink` command is not found after installation, the npm global bin directory is not in your PATH. Fix it with:
 >
 > ```bash
 > export PATH="$(npm prefix -g)/bin:$PATH"
 > ```
 >
-> 也可以直接用完整路径调用：`$(npm prefix -g)/bin/hermeslink`
+> Or call it directly: `$(npm prefix -g)/bin/hermeslink`
 
-## 快速开始
+## Quick Start
 
 ```bash
-# 1. 启动后台服务
+# 1. Start the background daemon
 hermeslink start
 
-# 2. 生成配对页面（浏览器打开完成配对）
+# 2. Open the pairing page in a browser
 hermeslink pair
 
-# 3. 查看状态
+# 3. Check status
 hermeslink status
 
-# 4. 查看日志
+# 4. View logs
 hermeslink logs
 ```
 
-## 配对流程
+## Pairing
 
-### 方式一：App 扫码配对（标准流程）
+### Method 1: App QR code scan (standard flow)
 
-二维码内容是一段 JSON，App 解析后获取连接所需的全部信息：
+The QR code contains a JSON payload the app parses to get everything it needs:
 
 ```json
 {
@@ -182,31 +179,31 @@ hermeslink logs
 }
 ```
 
-App 拿到上述信息后：
+Once the app has this:
 
 ```
-1. 取 preferred_urls[0] 作为服务地址（优先局域网 IP）
+1. Use preferred_urls[0] as the base URL (LAN IP preferred)
 2. POST {baseUrl}/api/v1/pairing/claim
-   Body: { "session_id": "...", "claim_token": "<code 字段的值>" }
-3. 响应中获得 access_token 和 refresh_token
-4. 后续 API 请求携带 Authorization: Bearer <access_token>
+   Body: { "session_id": "...", "claim_token": "<value of the code field>" }
+3. Response contains access_token and refresh_token
+4. Include Authorization: Bearer <access_token> on all subsequent requests
 ```
 
-### 方式二：浏览器配对
+### Method 2: Browser pairing
 
 ```bash
 hermeslink pair
-# 在浏览器打开终端输出的 Pairing page URL
-# 点击"在此设备上配对"，页面直接显示 access_token 和 refresh_token
+# Open the Pairing page URL printed in the terminal
+# Click "Pair on this device" — the page shows your access_token and refresh_token
 ```
 
-### 方式三：命令行脚本（适合自动化）
+### Method 3: CLI / script (automation-friendly)
 
 ```bash
-# 1. 获取 connect_token
+# 1. Get the connect_token
 CONNECT_TOKEN=$(hermeslink pair 2>&1 | grep "Connect token:" | awk '{print $NF}')
 
-# 2. 用 connect_token 换 access_token
+# 2. Exchange it for an access_token
 curl -s -X POST http://localhost:18642/api/v1/auth/device-session \
   -H "Authorization: Bearer $CONNECT_TOKEN" \
   -H "Content-Type: application/json" \
@@ -215,348 +212,242 @@ curl -s -X POST http://localhost:18642/api/v1/auth/device-session \
 
 ---
 
-> **Token 有效期**：access_token 2 小时，refresh_token 90 天。access_token 过期后用 refresh_token 换新，无需重新配对。
+> **Token expiry**: access_token lasts 2 hours, refresh_token lasts 90 days. When the access_token expires, use the refresh_token to get a new one — no need to re-pair.
 
-## 命令一览
+## Commands
 
-| 命令 | 说明 |
-|------|------|
-| `hermeslink start` | 启动后台守护进程 |
-| `hermeslink stop` | 停止守护进程 |
-| `hermeslink restart` | 重启守护进程 |
-| `hermeslink status` | 查看运行状态 |
-| `hermeslink pair` | 生成配对 URL 和二维码 |
-| `hermeslink config get` | 查看当前配置 |
-| `hermeslink config set <key> <value>` | 修改配置 |
-| `hermeslink autostart on` | 开机自启（同 `enable`）|
-| `hermeslink autostart off` | 关闭自启（同 `disable`）|
-| `hermeslink logs` | 查看 Link 日志 |
-| `hermeslink logs --gateway` | 查看 Hermes 网关日志 |
-| `hermeslink logs -n 100` | 查看最近 100 条日志 |
-| `hermeslink version` | 查看版本号 |
+| Command | Description |
+|---------|-------------|
+| `hermeslink start` | Start the background daemon |
+| `hermeslink stop` | Stop the daemon |
+| `hermeslink restart` | Restart the daemon |
+| `hermeslink status` | Show running status |
+| `hermeslink pair` | Generate pairing URL and QR code |
+| `hermeslink config get` | Show current config |
+| `hermeslink config set <key> <value>` | Update a config value |
+| `hermeslink autostart on` | Enable autostart on login (alias: `enable`) |
+| `hermeslink autostart off` | Disable autostart (alias: `disable`) |
+| `hermeslink logs` | View Link logs |
+| `hermeslink logs --gateway` | View Hermes gateway logs |
+| `hermeslink logs -n 100` | View last 100 log lines |
+| `hermeslink version` | Show version |
 
-## 配置
+## Configuration
 
 ```bash
-hermeslink config set port 18642              # 修改监听端口（默认 18642）
-hermeslink config set lan-host 192.168.1.10   # 手动指定局域网 IP（默认自动检测）
-hermeslink config set language zh-CN          # 语言：auto / en / zh-CN
-hermeslink config set log-level debug         # 日志级别：debug / info / warn / error
+hermeslink config set port 18642              # Change listen port (default: 18642)
+hermeslink config set lan-host 192.168.1.10   # Set LAN IP manually (default: auto-detect)
+hermeslink config set language en             # Language: auto / en / zh-CN
+hermeslink config set log-level debug         # Log level: debug / info / warn / error
 ```
 
-配置文件位于 `~/.hermeslink/config.json`。
+Config file is at `~/.hermeslink/config.json`.
 
-## API 参考
+## API Reference
 
-服务默认监听 `http://0.0.0.0:18642`。所有需要鉴权的接口均使用 Bearer Token（`hlat_` 前缀）。
+Service listens on `http://0.0.0.0:18642` by default. All authenticated endpoints use a Bearer Token with the `hlat_` prefix.
 
-### Token 说明
+### Token Types
 
-| Token | 前缀 | 有效期 | 用途 |
-|-------|------|--------|------|
-| Connect Token | 无前缀（base64url）| 5 分钟，一次性 | 兑换 access_token |
-| Access Token | `hlat_` | 2 小时 | 所有 API 请求 |
-| Refresh Token | `hlrt_` | 90 天 | 刷新 access_token |
+| Token | Prefix | Expiry | Purpose |
+|-------|--------|--------|---------|
+| Connect Token | none (base64url) | 5 min, one-time | Exchange for access_token |
+| Access Token | `hlat_` | 15 min | All API requests |
+| Refresh Token | `hlrt_` | 90 days | Refresh access_token |
 
-### 无需鉴权
+### No Auth Required
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/pair` | 配对网页（浏览器打开） |
-| GET | `/api/v1/bootstrap` | 服务基础信息，含 link_id、版本、能力 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/pair` | Pairing web page (open in browser) |
+| GET | `/api/v1/bootstrap` | Service info: link_id, version, capabilities |
 
-### 认证 / 设备
+### Auth / Devices
 
-所有以下接口需要 Header：`Authorization: Bearer hlat_xxx`
+All endpoints below require `Authorization: Bearer hlat_xxx`
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/auth/me` | 当前 Token 信息及设备信息 |
-| POST | `/api/v1/auth/device-session` | 用 connect_token 换取 access/refresh token |
-| POST | `/api/v1/auth/refresh` | 用 refresh_token 换新 access_token |
-| POST | `/api/v1/auth/logout` | 撤销 refresh_token |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/auth/me` | Current token info and device details |
+| POST | `/api/v1/auth/device-session` | Exchange connect_token for access/refresh tokens |
+| POST | `/api/v1/auth/refresh` | Refresh access_token using refresh_token |
+| POST | `/api/v1/auth/logout` | Revoke refresh_token |
 
-**POST `/api/v1/auth/device-session`** 的 Authorization 头需放 **connect_token**（不是 hlat_），Body：
+**POST `/api/v1/auth/device-session`** — Authorization header takes the **connect_token** (not hlat_). Body:
 
 ```json
 {
-  "device_label": "我的设备",
+  "device_label": "My Device",
   "device_platform": "ios|android|web|cli",
-  "device_model": "可选，设备型号"
+  "device_model": "optional device model"
 }
 ```
 
-响应：
+Response:
 
 ```json
 {
   "ok": true,
-  "device": { "device_id": "dev_xxx", "label": "我的设备", "platform": "ios" },
+  "device": { "device_id": "dev_xxx", "label": "My Device", "platform": "ios" },
   "access_token":  { "token": "hlat_xxx", "expires_at": "2026-05-08T13:00:00Z" },
   "refresh_token": { "token": "hlrt_xxx", "expires_at": "2026-08-06T12:00:00Z" }
 }
 ```
 
-**POST `/api/v1/auth/refresh`** Body：
+**POST `/api/v1/auth/refresh`** Body:
 
 ```json
 { "refresh_token": "hlrt_xxx" }
 ```
 
-### 配对
+### Pairing
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/pairing/session` | 查询配对会话状态（含 claimed 字段） |
-| POST | `/api/v1/pairing/claim` | App 端用来完成配对 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/pairing/session` | Query pairing session status (includes `claimed` field) |
+| POST | `/api/v1/pairing/claim` | Complete pairing from the app side |
 
-**GET `/api/v1/pairing/session`** 查询参数：`?session_id=ps_xxx`
+**GET `/api/v1/pairing/session`** query: `?session_id=ps_xxx`
 
-**POST `/api/v1/pairing/claim`** Body：
+**POST `/api/v1/pairing/claim`** Body:
 
 ```json
 {
   "session_id": "ps_xxx",
-  "claim_token": "connect_token值",
+  "claim_token": "<connect_token value>",
   "device_label": "My App",
   "device_platform": "ios"
 }
 ```
 
-### 系统状态
+### System Status
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/status` | 服务整体状态（版本、设备数、profiles 数量等） |
-| GET | `/api/v1/logs` | 最近日志（`?source=link\|gateway&limit=50`） |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/status` | Overall service status (version, device count, profile count, etc.) |
+| GET | `/api/v1/logs` | Recent logs (`?source=link\|gateway&limit=50`) |
 
-### 设备列表
+### Devices
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/devices` | 列出所有已配对设备 |
-| PATCH | `/api/v1/devices/:deviceId` | 重命名设备（`{"label":"新名字"}`） |
-| DELETE | `/api/v1/devices/:deviceId` | 撤销设备（吊销 token） |
-| DELETE | `/api/v1/devices/:deviceId/app-listing` | 从列表中隐藏已撤销设备 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/devices` | List all paired devices |
+| PATCH | `/api/v1/devices/:deviceId` | Rename device (`{"label":"New Name"}`) |
+| DELETE | `/api/v1/devices/:deviceId` | Revoke device (invalidates its tokens) |
+| DELETE | `/api/v1/devices/:deviceId/app-listing` | Hide a revoked device from the list |
 
-### 对话（Conversations）
+### Conversations
 
-#### 活跃对话
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/conversations` | List conversations (`?limit=20&cursor=xxx`) |
+| GET | `/api/v1/conversations/search` | Search conversations (`?q=keyword`) |
+| POST | `/api/v1/conversations` | Create a new conversation |
+| DELETE | `/api/v1/conversations` | Bulk delete conversations |
+| DELETE | `/api/v1/conversations/:id` | Delete a single conversation |
+| GET | `/api/v1/conversations/:id/messages` | Get messages in a conversation |
+| POST | `/api/v1/conversations/:id/messages` | Send a message |
+| GET | `/api/v1/conversations/:id/events` | SSE event stream for a conversation |
+| GET | `/api/v1/conversations/events` | SSE stream for all conversations |
+| PATCH | `/api/v1/conversations/:id/title` | Rename conversation (`{"title":"New Title"}`) |
+| PATCH | `/api/v1/conversations/:id/model` | Switch model |
+| PATCH | `/api/v1/conversations/:id/profile` | Switch profile |
+| POST | `/api/v1/conversations/:id/ack` | Acknowledge events read |
+| POST | `/api/v1/conversations/clear-plans` | Create a bulk-clear plan |
+| GET | `/api/v1/conversations/clear-plans/:planId` | Query clear plan status |
+| POST | `/api/v1/conversations/clear-plans/:planId/execute` | Execute clear plan |
+| POST | `/api/v1/conversations/:id/runs/:runId/cancel` | Cancel an in-progress run |
+| POST | `/api/v1/conversations/:id/approvals/:approvalId/approve` | Approve a tool call |
+| POST | `/api/v1/conversations/:id/approvals/:approvalId/deny` | Deny a tool call |
+| POST | `/api/v1/conversations/:id/blobs` | Upload attachment |
+| GET | `/api/v1/conversations/:id/blobs/:blobId` | Download attachment |
+| DELETE | `/api/v1/conversations/:id/blobs/:blobId` | Delete attachment |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/conversations` | 列出活跃对话（`?limit=20&cursor=xxx`） |
-| GET | `/api/v1/conversations/search` | 搜索活跃对话（`?q=关键词`） |
-| POST | `/api/v1/conversations` | 新建对话 |
-| DELETE | `/api/v1/conversations` | 批量删除对话（`{"conversation_ids":["conv_xxx"]}`） |
-| DELETE | `/api/v1/conversations/:id` | 删除单个对话 |
-| GET | `/api/v1/conversations/:id/messages` | 获取对话消息列表（含 `runtime` 上下文信息） |
-| POST | `/api/v1/conversations/:id/messages` | 发送消息 |
-| GET | `/api/v1/conversations/:id/events` | SSE 实时事件流 |
-| GET | `/api/v1/conversations/events` | 所有对话事件流（SSE） |
-| PATCH | `/api/v1/conversations/:id/title` | 重命名对话（`{"title":"新标题"}`） |
-| PATCH | `/api/v1/conversations/:id/model` | 切换模型（`{"model_id":"xxx"}`） |
-| PATCH | `/api/v1/conversations/:id/profile` | 切换 profile |
-| POST | `/api/v1/conversations/:id/ack` | 确认已读 |
-| POST | `/api/v1/conversations/:id/runs/:runId/cancel` | 取消对话内的某次执行 |
-| POST | `/api/v1/conversations/:id/approvals/:approvalId/approve` | 审批工具调用（允许，`{"scope":"once\|session\|always"}`） |
-| POST | `/api/v1/conversations/:id/approvals/:approvalId/deny` | 审批工具调用（拒绝） |
-| POST | `/api/v1/conversations/:id/blobs` | 上传附件 |
-| GET | `/api/v1/conversations/:id/blobs/:blobId` | 下载附件 |
-| DELETE | `/api/v1/conversations/:id/blobs/:blobId` | 删除附件 |
+### Statistics
 
-#### 归档对话
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/statistics` | Global usage stats (conversation count, message count, etc.) |
+| GET | `/api/v1/statistics/usage` | Token usage (`?days=7&from=2026-05-01&to=2026-05-08&model=xxx&profile=xxx`) |
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/conversations/archived` | 列出已归档对话（`?limit=20&cursor=xxx`） |
-| GET | `/api/v1/conversations/archived/search` | 搜索已归档对话（`?q=关键词`） |
-| POST | `/api/v1/conversations/:id/archive` | 归档对话（发送新消息时自动恢复为活跃） |
-| POST | `/api/v1/conversations/:id/unarchive` | 取消归档 |
+### Models
 
-#### 批量清理计划
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/conversations/clear-plans` | 创建批量删除计划（`{"target_status":"active\|archived"}`） |
-| GET | `/api/v1/conversations/clear-plans/:planId` | 查询计划状态 |
-| POST | `/api/v1/conversations/clear-plans/:planId/execute` | 执行计划（批量删除） |
-
-#### 批量归档计划
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/conversations/archive-plans` | 创建批量归档计划（`{"exclude_conversation_ids":[]}`） |
-| GET | `/api/v1/conversations/archive-plans/:planId` | 查询计划状态 |
-| POST | `/api/v1/conversations/archive-plans/:planId/execute` | 执行计划（批量归档） |
-
-#### 响应结构说明
-
-**ConversationSummary**（对话列表每项）：
-
-```json
-{
-  "id": "conv_xxx",
-  "title": "对话标题",
-  "created_at": "2026-05-09T00:00:00.000Z",
-  "updated_at": "2026-05-09T00:00:00.000Z",
-  "last_event_seq": 12,
-  "usage": { "input_tokens": 100, "output_tokens": 200, "total_tokens": 300, "updated_at": "..." },
-  "profile": { "uid": "prof_xxx", "name": "default", "display_name": "default", "avatar_url": null },
-  "last_message": { "id": "msg_xxx", "role": "assistant", "content_preview": "消息摘要..." }
-}
-```
-
-**GET `/api/v1/conversations/:id/messages`** 响应新增 `runtime` 字段：
-
-```json
-{
-  "ok": true,
-  "messages": [...],
-  "last_event_seq": 12,
-  "runtime": {
-    "profile": { "name": "default", "display_name": "default", "avatar_url": null },
-    "model": { "id": "claude-3-5-sonnet", "provider": "anthropic", "context_window": 200000 },
-    "context": { "input_tokens": 100, "output_tokens": 200, "total_tokens": 300, "usage_percent": 0, "source": "estimated" }
-  },
-  "page": { "limit": 50, "has_more_before": false, "has_more_after": false, "oldest_message_id": "...", "newest_message_id": "..." }
-}
-```
-
-**LinkMessage**（消息对象）：
-
-```json
-{
-  "id": "msg_xxx",
-  "schema_version": 1,
-  "conversation_id": "conv_xxx",
-  "role": "user|assistant|tool|system",
-  "status": "queued|streaming|completed|failed|cancelled",
-  "created_at": "...",
-  "updated_at": "...",
-  "sender": { "id": "app_user", "type": "human|agent|system|tool", "display_name": "Me" },
-  "parts": [{ "type": "text", "text": "消息内容" }],
-  "attachments": [],
-  "blocks": [],
-  "agent_events": [],
-  "approvals": []
-}
-```
-
-**DELETE `/api/v1/conversations/:id`** 响应新增字段：
-
-```json
-{
-  "ok": true,
-  "conversation_id": "conv_xxx",
-  "hermes_deleted": false,
-  "deleted_at": "2026-05-09T00:00:00.000Z"
-}
-```
-
-### 统计
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/statistics` | 全局使用统计（`?profile=xxx&profile_uid=xxx`） |
-| GET | `/api/v1/statistics/usage` | Token 用量统计（`?days=7&from=2026-05-01&to=2026-05-08&model=xxx&profile=xxx`） |
-
-**GET `/api/v1/statistics`** 响应：
-
-```json
-{
-  "ok": true,
-  "statistics": {
-    "conversations": { "total": 10, "active": 8, "archived": 1, "deleted": 1 },
-    "tokens": { "input_tokens": 5000, "output_tokens": 8000, "total_tokens": 13000 },
-    "messages": { "total": 120 },
-    "runs": { "total": 50 },
-    "models": { "total": 0 },
-    "profiles": { "total": 0 },
-    "skills": { "total": 0 },
-    "tools": { "total": 0 }
-  }
-}
-```
-
-### 模型（Models）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/models` | 列出可用模型（来自 Hermes API Server，OpenAI 兼容格式） |
-| GET | `/api/v1/model-configs` | 列出全局模型配置 |
-| POST | `/api/v1/model-configs` | 新增全局模型配置 |
-| PATCH | `/api/v1/model-configs/defaults` | 更新默认模型配置 |
-| DELETE | `/api/v1/model-configs` | 删除全局模型配置 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/models` | List available models (from Hermes API Server, OpenAI-compatible format) |
+| GET | `/api/v1/model-configs` | List global model configs |
+| POST | `/api/v1/model-configs` | Add global model config |
+| PATCH | `/api/v1/model-configs/defaults` | Update default model config |
+| DELETE | `/api/v1/model-configs` | Delete global model config |
 
 ### Profiles
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/profiles` | 列出所有 Profile 名称 |
-| POST | `/api/v1/profiles` | 创建新 Profile（异步，返回 202） |
-| PATCH | `/api/v1/profiles/:name` | 重命名（`{"name":"new-name"}`）或更新元数据 |
-| DELETE | `/api/v1/profiles/:name` | 删除 Profile |
-| GET | `/api/v1/profiles/catalog` | 完整目录（包含各 Profile 的 capabilities、permissions、modelConfigs）|
-| GET | `/api/v1/profile-creation/status` | 查询创建进度 |
-| GET | `/api/v1/profile-creation/events` | 创建进度 SSE 流 |
-| GET | `/api/v1/profiles/:name/status` | Profile 状态（存在性、API Key 配置等） |
-| GET | `/api/v1/profiles/:name/statistics` | Profile 的对话统计 |
-| GET | `/api/v1/profiles/:name/skills` | 列出 Profile Skills（`?include_disabled=true`）|
-| PATCH | `/api/v1/profiles/:name/skills/:skillName` | 启用/禁用 Skill（`{"enabled":true}`） |
-| GET | `/api/v1/profiles/:name/memory` | 查看记忆（USER.md + MEMORY.md） |
-| POST | `/api/v1/profiles/:name/memory/entries` | 新增记忆条目（`{"target":"memory","content":"..."}`)  |
-| PATCH | `/api/v1/profiles/:name/memory/entries` | 替换记忆条目（`{"target":"memory","match":"旧内容","content":"新内容"}`）|
-| DELETE | `/api/v1/profiles/:name/memory/entries` | 删除记忆条目（`{"target":"memory","match":"匹配内容"}`）|
-| DELETE | `/api/v1/profiles/:name/memory` | 重置记忆（`{"target":"memory\|user\|all"}`）|
-| PATCH | `/api/v1/profiles/:name/memory/settings` | 更新记忆 Provider 设置 |
-| PATCH | `/api/v1/profiles/:name/memory/provider` | 切换记忆 Provider（`{"provider":"built-in"}`）|
-| GET | `/api/v1/profiles/:name/permissions` | 查看权限配置 |
-| PATCH | `/api/v1/profiles/:name/permissions` | 更新权限配置 |
-| GET | `/api/v1/profiles/:name/tool-configs/:toolKey` | 查看工具配置（toolKey：`web` / `image_gen` / `stt` / `tts` / `messaging` / `homeassistant` / `rl`）|
-| PATCH | `/api/v1/profiles/:name/tool-configs/:toolKey` | 更新工具配置（同上 toolKey）|
-| GET | `/api/v1/profiles/:name/model-configs` | 列出 Profile 的模型配置 |
-| POST | `/api/v1/profiles/:name/model-configs` | 新增 Profile 的模型配置 |
-| PATCH | `/api/v1/profiles/:name/model-configs/defaults` | 更新 Profile 默认模型 |
-| DELETE | `/api/v1/profiles/:name/model-configs` | 删除 Profile 的模型配置 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/profiles` | List all profile names |
+| POST | `/api/v1/profiles` | Create new profile (async, returns 202) |
+| PATCH | `/api/v1/profiles/:name` | Rename (`{"name":"new-name"}`) or update metadata |
+| DELETE | `/api/v1/profiles/:name` | Delete profile |
+| GET | `/api/v1/profiles/catalog` | Full catalog (capabilities, permissions, modelConfigs per profile) |
+| GET | `/api/v1/profile-creation/status` | Query creation progress |
+| GET | `/api/v1/profile-creation/events` | Creation progress SSE stream |
+| GET | `/api/v1/profiles/:name/status` | Profile status (existence, API key configuration, etc.) |
+| GET | `/api/v1/profiles/:name/statistics` | Profile conversation statistics |
+| GET | `/api/v1/profiles/:name/skills` | List profile skills (`?include_disabled=true`) |
+| PATCH | `/api/v1/profiles/:name/skills/:skillName` | Enable/disable skill (`{"enabled":true}`) |
+| GET | `/api/v1/profiles/:name/memory` | View memory (USER.md + MEMORY.md) |
+| POST | `/api/v1/profiles/:name/memory/entries` | Add memory entry (`{"target":"memory","content":"..."}`) |
+| PATCH | `/api/v1/profiles/:name/memory/entries` | Replace memory entry (`{"target":"memory","match":"old","content":"new"}`) |
+| DELETE | `/api/v1/profiles/:name/memory/entries` | Delete memory entry (`{"target":"memory","match":"text to match"}`) |
+| DELETE | `/api/v1/profiles/:name/memory` | Reset memory (`{"target":"memory\|user\|all"}`) |
+| PATCH | `/api/v1/profiles/:name/memory/settings` | Update memory provider settings |
+| PATCH | `/api/v1/profiles/:name/memory/provider` | Switch memory provider (`{"provider":"built-in"}`) |
+| GET | `/api/v1/profiles/:name/permissions` | View permissions config |
+| PATCH | `/api/v1/profiles/:name/permissions` | Update permissions config |
+| GET | `/api/v1/profiles/:name/tool-configs/:toolKey` | View tool config (toolKey: `web` / `image_gen` / `stt` / `tts` / `messaging` / `homeassistant` / `rl`) |
+| PATCH | `/api/v1/profiles/:name/tool-configs/:toolKey` | Update tool config |
+| GET | `/api/v1/profiles/:name/model-configs` | List profile model configs |
+| POST | `/api/v1/profiles/:name/model-configs` | Add profile model config |
+| PATCH | `/api/v1/profiles/:name/model-configs/defaults` | Update profile default model |
+| DELETE | `/api/v1/profiles/:name/model-configs` | Delete profile model config |
 
-记忆 `target` 字段：`"memory"`（Agent 笔记，MEMORY.md）或 `"user"`（用户信息，USER.md）。
+Memory `target` values: `"memory"` (agent notes, MEMORY.md) or `"user"` (user info, USER.md).
 
-### Cron Jobs（定时任务）
+### Cron Jobs
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/cron-jobs` | 汇总列出所有 Profile 的定时任务 |
-| GET | `/api/v1/profiles/:name/cron-jobs` | 列出指定 Profile 的定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs` | 创建定时任务 |
-| GET | `/api/v1/profiles/:name/cron-jobs/:jobId` | 查看定时任务详情 |
-| PATCH | `/api/v1/profiles/:name/cron-jobs/:jobId` | 更新定时任务 |
-| DELETE | `/api/v1/profiles/:name/cron-jobs/:jobId` | 删除定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/pause` | 暂停定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/resume` | 恢复定时任务 |
-| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/run` | 立即执行定时任务 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/cron-jobs` | List all cron jobs across all profiles |
+| GET | `/api/v1/profiles/:name/cron-jobs` | List cron jobs for a specific profile |
+| POST | `/api/v1/profiles/:name/cron-jobs` | Create cron job |
+| GET | `/api/v1/profiles/:name/cron-jobs/:jobId` | Get cron job details |
+| PATCH | `/api/v1/profiles/:name/cron-jobs/:jobId` | Update cron job |
+| DELETE | `/api/v1/profiles/:name/cron-jobs/:jobId` | Delete cron job |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/pause` | Pause cron job |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/resume` | Resume cron job |
+| POST | `/api/v1/profiles/:name/cron-jobs/:jobId/run` | Run cron job immediately |
 
-### Runs（执行任务）
+### Runs
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/v1/runs` | 向 Hermes Agent 提交执行任务（返回 202） |
-| GET | `/api/v1/runs/:runId/events` | 订阅执行事件流（SSE 代理） |
-| POST | `/api/v1/runs/:runId/cancel` | 取消执行任务 |
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/v1/runs` | Submit a run to Hermes Agent (returns 202) |
+| GET | `/api/v1/runs/:runId/events` | Subscribe to run event stream (SSE proxy) |
+| POST | `/api/v1/runs/:runId/cancel` | Cancel a run |
 
-**POST `/api/v1/runs`** Body：
+**POST `/api/v1/runs`** Body:
 
 ```json
 {
-  "input": "请帮我整理 ~/Downloads 目录",
+  "input": "Please organise my ~/Downloads folder",
   "profile": "default",
-  "instructions": "可选的系统指令",
-  "session_id": "可选的会话 ID",
+  "instructions": "optional system instructions",
+  "session_id": "optional session ID",
   "conversation_history": []
 }
 ```
 
-响应（202）：
+Response (202):
 
 ```json
 {
@@ -565,42 +456,42 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 }
 ```
 
-### 更新管理（Updates）
+### Updates
 
-#### Hermes Agent 更新
+#### Hermes Agent
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/hermes/update-check` | 检查 Hermes Agent 是否有新版本 |
-| GET | `/api/v1/hermes/update/status` | 查询 Hermes 更新进度 |
-| POST | `/api/v1/hermes/update` | 触发 Hermes Agent 更新 |
-| GET | `/api/v1/hermes/update/events` | 更新进度 SSE 流 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/hermes/update-check` | Check for a new Hermes Agent version |
+| GET | `/api/v1/hermes/update/status` | Query Hermes update progress |
+| POST | `/api/v1/hermes/update` | Trigger Hermes Agent update |
+| GET | `/api/v1/hermes/update/events` | Update progress SSE stream |
 
-#### Link 自身更新
+#### Link itself
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/link/update-check` | 检查 Link 是否有新版本 |
-| GET | `/api/v1/link/update/status` | 查询 Link 更新进度 |
-| POST | `/api/v1/link/update` | 触发 Link 自更新（`{"version":"0.3.0"}`）|
-| GET | `/api/v1/link/update/events` | 更新进度 SSE 流 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/link/update-check` | Check for a new Link version |
+| GET | `/api/v1/link/update/status` | Query Link update progress |
+| POST | `/api/v1/link/update` | Trigger Link self-update (`{"version":"0.3.0"}`) |
+| GET | `/api/v1/link/update/events` | Update progress SSE stream |
 
-### 系统（System）
+### System
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/v1/system/status` | 系统详情（版本、自启状态、网络环境）|
-| GET | `/api/v1/system/version` | 仅返回 Link 版本号 |
-| POST | `/api/v1/system/autostart/enable` | 开启开机自启 |
-| POST | `/api/v1/system/autostart/disable` | 关闭开机自启 |
-| GET | `/api/v1/system/logs` | 最近 Link 日志 |
-| GET | `/api/v1/system/logs/gateway` | 最近 Gateway 日志 |
-| GET | `/api/v1/system/updates` | 查询可用更新（Hermes + Link 汇总）|
-| POST | `/api/v1/system/updates/dismiss` | 忽略当前可用更新提示 |
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/system/status` | System details (version, autostart state, network info) |
+| GET | `/api/v1/system/version` | Link version only |
+| POST | `/api/v1/system/autostart/enable` | Enable autostart on login |
+| POST | `/api/v1/system/autostart/disable` | Disable autostart |
+| GET | `/api/v1/system/logs` | Recent Link logs |
+| GET | `/api/v1/system/logs/gateway` | Recent gateway logs |
+| GET | `/api/v1/system/updates` | Available updates (Hermes + Link combined) |
+| POST | `/api/v1/system/updates/dismiss` | Dismiss current update notification |
 
-### 错误响应格式
+### Error Response Format
 
-所有错误均返回：
+All errors return:
 
 ```json
 {
@@ -612,31 +503,31 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 }
 ```
 
-常见错误码：
+Common error codes:
 
-| code | HTTP | 说明 |
-|------|------|------|
-| `auth_required` | 401 | 未提供 Authorization |
-| `device_access_token_invalid` | 401 | access_token 已过期或无效 |
-| `auth_invalid` | 401 | connect_token 无效或已用过 |
-| `pairing_session_not_found` | 404 | 配对会话不存在 |
-| `pairing_session_expired` | 404 | 配对会话已过期 |
-| `pairing_claim_mismatch` | 409 | 配对 token 不匹配 |
-| `link_not_paired` | 409 | 服务尚未分配 link_id |
+| code | HTTP | Description |
+|------|------|-------------|
+| `auth_required` | 401 | No Authorization header |
+| `device_access_token_invalid` | 401 | access_token expired or invalid |
+| `auth_invalid` | 401 | connect_token invalid or already used |
+| `pairing_session_not_found` | 404 | Pairing session not found |
+| `pairing_session_expired` | 404 | Pairing session expired |
+| `pairing_claim_mismatch` | 409 | Pairing token mismatch |
+| `link_not_paired` | 409 | Service has not been assigned a link_id yet |
 
-## 调用示例
+## Examples
 
-### 全流程脚本
+### Full pairing and usage script
 
 ```bash
 #!/bin/bash
 BASE="http://localhost:18642"
 
-# Step 1: 生成配对 token
+# Step 1: Generate a connect token
 CONNECT=$(hermeslink pair 2>&1 | grep "Connect token:" | awk '{print $NF}')
 echo "Connect token: $CONNECT"
 
-# Step 2: 兑换 access_token 和 refresh_token
+# Step 2: Exchange for access_token and refresh_token
 RESP=$(curl -s -X POST "$BASE/api/v1/auth/device-session" \
   -H "Authorization: Bearer $CONNECT" \
   -H "Content-Type: application/json" \
@@ -647,11 +538,11 @@ REFRESH=$(echo $RESP | python3 -c "import json,sys; print(json.load(sys.stdin)['
 echo "Access:  $ACCESS"
 echo "Refresh: $REFRESH"
 
-# Step 3: 查询状态
+# Step 3: Check status
 curl -s "$BASE/api/v1/status" -H "Authorization: Bearer $ACCESS" | python3 -m json.tool
 ```
 
-### 刷新 Token
+### Refresh token
 
 ```bash
 curl -s -X POST http://localhost:18642/api/v1/auth/refresh \
@@ -659,80 +550,80 @@ curl -s -X POST http://localhost:18642/api/v1/auth/refresh \
   -d "{\"refresh_token\":\"$REFRESH\"}"
 ```
 
-### 查询设备列表
+### List devices
 
 ```bash
 curl -s http://localhost:18642/api/v1/devices \
   -H "Authorization: Bearer $ACCESS"
 ```
 
-### 查询对话列表
+### List conversations
 
 ```bash
 curl -s "http://localhost:18642/api/v1/conversations?limit=10" \
   -H "Authorization: Bearer $ACCESS"
 ```
 
-## 开机自启
+## Autostart
 
-- **macOS**：通过 launchd（`~/Library/LaunchAgents/com.hermes.link.plist`）
-- **Linux**：通过 systemd 用户服务或 XDG autostart
-- **Windows**：通过 Startup 文件夹
+- **macOS**: via launchd (`~/Library/LaunchAgents/com.hermes.link.plist`)
+- **Linux**: via systemd user service or XDG autostart
+- **Windows**: via the Startup folder
 
 ```bash
 hermeslink autostart on
 hermeslink autostart off
 ```
 
-## 运行时文件
+## Runtime Files
 
-所有文件存储于 `~/.hermeslink/`：
+All files are stored under `~/.hermeslink/`:
 
-| 路径 | 说明 |
-|------|------|
-| `config.json` | 用户配置 |
-| `identity.json` | 设备身份（ed25519 密钥对 + link_id）|
-| `credentials.json` | 已配对设备的访问令牌 |
-| `app-connect-tokens.json` | 待使用的配对 token（5 分钟有效）|
-| `conversations/` | 对话数据 |
-| `blobs/` | 文件附件 |
-| `pairing/` | 配对会话 |
-| `link.db` | SQLite 数据库（统计信息）|
-| `logs/` | 日志文件 |
+| Path | Description |
+|------|-------------|
+| `config.json` | User configuration |
+| `identity.json` | Device identity (ed25519 key pair + link_id) |
+| `credentials.json` | Access tokens for paired devices |
+| `app-connect-tokens.json` | Pending pairing tokens (5-minute TTL) |
+| `conversations/` | Conversation data |
+| `blobs/` | File attachments |
+| `pairing/` | Pairing sessions |
+| `link.db` | SQLite database (usage statistics) |
+| `logs/` | Log files |
 
-卸载 npm 包不会删除此目录，重新安装后仍可复用同一 link_id。
+Uninstalling the npm package does not delete this directory — reinstalling reuses the same link_id.
 
-## 环境变量
+## Environment Variables
 
-| 变量 | 说明 |
-|------|------|
-| `HERMESLINK_HOME` | 覆盖运行时目录（默认 `~/.hermeslink`）|
-| `HERMESLINK_LOG_LEVEL` | 覆盖日志级别 |
-| `HERMESLINK_LANG` | 覆盖语言（`en` / `zh-CN`）|
-| `HERMES_BIN` | `hermes` 二进制路径（默认 `hermes`）|
-| `HERMESLINK_LISTEN_HOST` | HTTP 监听地址（默认 `0.0.0.0`）|
+| Variable | Description |
+|----------|-------------|
+| `HERMESLINK_HOME` | Override the runtime directory (default: `~/.hermeslink`) |
+| `HERMESLINK_LOG_LEVEL` | Override log level |
+| `HERMESLINK_LANG` | Override language (`en` / `zh-CN`) |
+| `HERMES_BIN` | Path to the `hermes` binary (default: `hermes`) |
+| `HERMESLINK_LISTEN_HOST` | HTTP listen address (default: `0.0.0.0`) |
 
-## 开发调试
+## Development
 
 ```bash
-# 安装依赖并构建
+# Install dependencies and build
 npm install
 npm run build
 
-# 前台运行（调试）
+# Run in foreground (for debugging)
 npm run dev:run
-# 或
+# or
 node dist/cli/index.js daemon --foreground
 
-# watch 模式（自动重编译，需手动重启服务）
-npm run dev:watch     # 终端1：监听源码变化自动 build
-node dist/cli/index.js daemon --foreground  # 终端2：运行服务
+# Watch mode (auto-rebuild on source changes, restart manually)
+npm run dev:watch     # terminal 1: watch and rebuild
+node dist/cli/index.js daemon --foreground  # terminal 2: run the service
 
-# TypeScript 类型检查
+# TypeScript type check
 npm run check
 ```
 
-服务运行后可访问 `http://localhost:18642/api/v1/bootstrap` 验证是否正常。
+After starting, visit `http://localhost:18642/api/v1/bootstrap` to verify the service is running.
 
 ## License
 

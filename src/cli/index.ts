@@ -161,10 +161,12 @@ async function cmdPair(paths: ReturnType<typeof resolveRuntimePaths>): Promise<v
   process.stdout.write("\n");
   // QR 码编码 JSON payload，供 App 扫码解析
   qrcode.generate(result.qrPayload, { small: true });
-  process.stdout.write(`\nPairing page:    ${result.pageUrl}\n`);
+  const pageUrls = result.preferredUrls.map((base) => buildLocalPairingPageUrl(base, result.sessionId));
+  const label = "Pairing page:    ";
+  const indent = " ".repeat(label.length);
+  process.stdout.write(`\n${label}${pageUrls.join(`\n${indent}`)}\n`);
   process.stdout.write(`Session ID:      ${result.sessionId}\n`);
   process.stdout.write(`Connect token:   ${result.connectToken}\n`);
-  process.stdout.write(`Preferred URLs:  ${result.preferredUrls.join(", ")}\n`);
   process.stdout.write(`\nApp 扫描二维码后，调用以下接口完成配对：\n`);
   process.stdout.write(`  POST ${result.preferredUrls[0]}/api/v1/pairing/claim\n`);
   process.stdout.write(`  Body: { "session_id": "${result.sessionId}", "claim_token": "<code>" }\n`);
