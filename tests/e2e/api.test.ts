@@ -602,7 +602,7 @@ describe("Profile — Tool Configs", () => {
 });
 
 describe("Cron Jobs", () => {
-  it("GET /api/v1/cron-jobs lists all jobs across profiles", async () => {
+  it.runIf(state.hermesAvailable)("GET /api/v1/cron-jobs lists all jobs across profiles", async () => {
     const res = await get("/api/v1/cron-jobs");
     expect(res.status).toBe(200);
     const body = await json(res);
@@ -610,7 +610,7 @@ describe("Cron Jobs", () => {
     expect(Array.isArray(body.jobs)).toBe(true);
   });
 
-  it("GET /api/v1/profiles/default/cron-jobs lists profile jobs", async () => {
+  it.runIf(state.hermesAvailable)("GET /api/v1/profiles/default/cron-jobs lists profile jobs", async () => {
     const res = await get("/api/v1/profiles/default/cron-jobs");
     expect(res.status).toBe(200);
     const body = await json(res);
@@ -681,7 +681,7 @@ describe("Updates", () => {
   });
 });
 
-describe("Conversations", () => {
+describe("Conversations — list & create", () => {
   it("GET /api/v1/conversations returns empty list for new runtime", async () => {
     const res = await get("/api/v1/conversations");
     expect(res.status).toBe(200);
@@ -690,8 +690,357 @@ describe("Conversations", () => {
     expect(Array.isArray(body.conversations)).toBe(true);
   });
 
+  it("POST /api/v1/conversations creates a conversation and returns ConversationSummary shape", async () => {
+    const res = await post("/api/v1/conversations", { title: "Test conversation" });
+    expect(res.status).toBe(201);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const conv = body.conversation as Record<string, unknown>;
+    expect(conv.id).toMatch(/^conv_/);
+    expect(conv.title).toBe("Test conversation");
+    expect(typeof conv.created_at).toBe("string");
+    expect(typeof conv.updated_at).toBe("string");
+    expect(typeof conv.last_event_seq).toBe("number");
+    // usage object
+    const usage = conv.usage as Record<string, number>;
+    expect(typeof usage.input_tokens).toBe("number");
+    expect(typeof usage.output_tokens).toBe("number");
+    expect(typeof usage.total_tokens).toBe("number");
+    // profile object
+    const profile = conv.profile as Record<string, unknown>;
+    expect(typeof profile.name).toBe("string");
+    expect(typeof profile.display_name).toBe("string");
+    expect("avatar_url" in profile).toBe(true);
+    // last_message is null for new conversation
+    expect(conv.last_message).toBeNull();
+  });
+
+  it("GET /api/v1/conversations returns conversations with correct ConversationSummary fields", async () => {
+    const res = await get("/api/v1/conversations");
+    const body = await json(res);
+    const convs = body.conversations as Array<Record<string, unknown>>;
+    expect(convs.length).toBeGreaterThan(0);
+    const conv = convs[0]!;
+    expect(conv.id).toMatch(/^conv_/);
+    expect(typeof conv.title).toBe("string");
+    expect(conv.usage).toBeTruthy();
+    expect(conv.profile).toBeTruthy();
+    expect("last_message" in conv).toBe(true);
+    const page = body.page as Record<string, unknown>;
+    expect(typeof page.limit).toBe("number");
+    expect(typeof page.has_more).toBe("boolean");
+    expect("next_cursor" in page).toBe(true);
+  });
+});
+
+describe("Conversations — messages & runtime", () => {
+  let convId = "";
+
+  beforeAll(async () => {
+    const res = await post("/api/v1/conversations", { title: "Messages test" });
+    const body = await json(res);
+    convId = (body.conversation as Record<string, string>).id;
+  });
+
   it("GET /api/v1/conversations/:id/messages 404s for unknown conversation", async () => {
     const res = await get("/api/v1/conversations/conv_nonexistentid12345/messages");
     expect(res.status).toBe(404);
+  });
+
+  it("GET /api/v1/conversations/:id/messages returns messages + runtime + page", async () => {
+    const res = await get(`/api/v1/conversations/${convId}/messages`);
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(Array.isArray(body.messages)).toBe(true);
+    expect(typeof body.last_event_seq).toBe("number");
+    // runtime field
+    const runtime = body.runtime as Record<string, unknown>;
+    expect(runtime).toBeTruthy();
+    const rProfile = runtime.profile as Record<string, unknown>;
+    expect(typeof rProfile.name).toBe("string");
+    expect(typeof rProfile.display_name).toBe("string");
+    const model = runtime.model as Record<string, unknown>;
+    expect(typeof model.id).toBe("string");
+    const context = runtime.context as Record<string, unknown>;
+    expect(typeof context.input_tokens).toBe("number");
+    expect(["explicit", "estimated", "unknown"]).toContain(context.source);
+    // page
+    const page = body.page as Record<string, unknown>;
+    expect(typeof page.has_more_before).toBe("boolean");
+    expect(typeof page.has_more_after).toBe("boolean");
+  });
+});
+
+describe("Conversations — rename, model, profile", () => {
+  let convId = "";
+
+  beforeAll(async () => {
+    const res = await post("/api/v1/conversations", { title: "Patch test" });
+    const body = await json(res);
+    convId = (body.conversation as Record<string, string>).id;
+  });
+
+  it("PATCH /api/v1/conversations/:id/title returns title + conversation + last_event_seq", async () => {
+    const res = await patch(`/api/v1/conversations/${convId}/title`, { title: "Renamed title" });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(convId);
+    expect(body.title).toBe("Renamed title");
+    expect(body.conversation).toBeTruthy();
+    expect(typeof body.last_event_seq).toBe("number");
+    expect(typeof body.hermes_synced).toBe("boolean");
+  });
+
+  it("PATCH /api/v1/conversations/:id/model returns model_override + runtime + last_event_seq", async () => {
+    const res = await patch(`/api/v1/conversations/${convId}/model`, { model_id: "claude-3-5-sonnet" });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(convId);
+    expect(body.model_override).toBe("claude-3-5-sonnet");
+    expect(body.runtime).toBeTruthy();
+    expect(typeof body.last_event_seq).toBe("number");
+  });
+
+  it("PATCH /api/v1/conversations/:id/profile returns profile object + runtime + conversation + last_event_seq", async () => {
+    const res = await patch(`/api/v1/conversations/${convId}/profile`, { profile: "default" });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(convId);
+    const profile = body.profile as Record<string, unknown>;
+    expect(typeof profile.name).toBe("string");
+    expect(typeof profile.display_name).toBe("string");
+    expect("avatar_url" in profile).toBe(true);
+    expect(body.runtime).toBeTruthy();
+    expect(body.conversation).toBeTruthy();
+    expect(typeof body.last_event_seq).toBe("number");
+  });
+});
+
+describe("Conversations — delete", () => {
+  it("DELETE /api/v1/conversations/:id returns hermes_deleted + deleted_at", async () => {
+    const createRes = await post("/api/v1/conversations", { title: "To delete" });
+    const created = await json(createRes);
+    const id = (created.conversation as Record<string, string>).id;
+
+    const res = await del(`/api/v1/conversations/${id}`);
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(id);
+    expect(typeof body.hermes_deleted).toBe("boolean");
+    expect(typeof body.deleted_at).toBe("string");
+  });
+
+  it("DELETE /api/v1/conversations (bulk) returns deleted_count + failed_count", async () => {
+    const r1 = await post("/api/v1/conversations", { title: "Bulk 1" });
+    const r2 = await post("/api/v1/conversations", { title: "Bulk 2" });
+    const id1 = ((await json(r1)).conversation as Record<string, string>).id;
+    const id2 = ((await json(r2)).conversation as Record<string, string>).id;
+
+    const res = await del("/api/v1/conversations", { conversation_ids: [id1, id2] });
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.deleted_count).toBe(2);
+    expect(body.failed_count).toBe(0);
+    expect(Array.isArray(body.conversations)).toBe(true);
+  });
+});
+
+describe("Conversations — archive / unarchive", () => {
+  let convId = "";
+
+  beforeAll(async () => {
+    const res = await post("/api/v1/conversations", { title: "Archive test" });
+    const body = await json(res);
+    convId = (body.conversation as Record<string, string>).id;
+  });
+
+  it("POST /api/v1/conversations/:id/archive archives a conversation", async () => {
+    const res = await post(`/api/v1/conversations/${convId}/archive`, {});
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(convId);
+    expect(typeof body.archived_at).toBe("string");
+  });
+
+  it("archived conversation does NOT appear in active list", async () => {
+    const res = await get("/api/v1/conversations");
+    const body = await json(res);
+    const ids = (body.conversations as Array<Record<string, string>>).map((c) => c.id);
+    expect(ids).not.toContain(convId);
+  });
+
+  it("GET /api/v1/conversations/archived lists archived conversations", async () => {
+    const res = await get("/api/v1/conversations/archived");
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const ids = (body.conversations as Array<Record<string, string>>).map((c) => c.id);
+    expect(ids).toContain(convId);
+  });
+
+  it("GET /api/v1/conversations/archived/search searches archived conversations", async () => {
+    const res = await get("/api/v1/conversations/archived/search?q=Archive");
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const ids = (body.conversations as Array<Record<string, string>>).map((c) => c.id);
+    expect(ids).toContain(convId);
+  });
+
+  it("GET /api/v1/conversations/:id/messages works on archived conversation", async () => {
+    const res = await get(`/api/v1/conversations/${convId}/messages`);
+    expect(res.status).toBe(200);
+    expect((await json(res)).ok).toBe(true);
+  });
+
+  it("POST /api/v1/conversations/:id/unarchive restores to active", async () => {
+    const res = await post(`/api/v1/conversations/${convId}/unarchive`, {});
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect(body.conversation_id).toBe(convId);
+    expect(typeof body.unarchived_at).toBe("string");
+  });
+
+  it("unarchived conversation reappears in active list", async () => {
+    const res = await get("/api/v1/conversations");
+    const body = await json(res);
+    const ids = (body.conversations as Array<Record<string, string>>).map((c) => c.id);
+    expect(ids).toContain(convId);
+  });
+});
+
+describe("Conversations — archive plans", () => {
+  let planId = "";
+
+  it("POST /api/v1/conversations/archive-plans creates a plan with status prepared", async () => {
+    const res = await post("/api/v1/conversations/archive-plans", {});
+    expect(res.status).toBe(201);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const plan = body.plan as Record<string, unknown>;
+    expect(typeof plan.id).toBe("string");
+    expect(plan.status).toBe("prepared");
+    expect(typeof plan.total_count).toBe("number");
+    expect(typeof plan.archived_count).toBe("number");
+    expect(Array.isArray(plan.conversation_ids)).toBe(true);
+    planId = plan.id as string;
+  });
+
+  it("GET /api/v1/conversations/archive-plans/:id returns the plan", async () => {
+    const res = await get(`/api/v1/conversations/archive-plans/${planId}`);
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    expect((body.plan as Record<string, unknown>).id).toBe(planId);
+  });
+
+  it("POST /api/v1/conversations/archive-plans/:id/execute runs the plan", async () => {
+    const res = await post(`/api/v1/conversations/archive-plans/${planId}/execute`, {});
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const plan = body.plan as Record<string, unknown>;
+    expect(plan.status).toBe("completed");
+    expect(typeof plan.archived_count).toBe("number");
+  });
+
+  it("GET /api/v1/conversations/archive-plans/:id 404s for unknown plan", async () => {
+    const res = await get("/api/v1/conversations/archive-plans/plan_nonexistent99");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("Conversations — clear plans", () => {
+  let planId = "";
+
+  beforeAll(async () => {
+    // Ensure at least one active conversation
+    await post("/api/v1/conversations", { title: "Clear plan target" });
+  });
+
+  it("POST /api/v1/conversations/clear-plans creates a plan with status prepared", async () => {
+    const res = await post("/api/v1/conversations/clear-plans", {});
+    expect(res.status).toBe(201);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const plan = body.plan as Record<string, unknown>;
+    expect(typeof plan.id).toBe("string");
+    expect(plan.status).toBe("prepared");
+    expect(typeof plan.total_count).toBe("number");
+    expect(Array.isArray(plan.conversation_ids)).toBe(true);
+    planId = plan.id as string;
+  });
+
+  it("GET /api/v1/conversations/clear-plans/:id returns the plan", async () => {
+    const res = await get(`/api/v1/conversations/clear-plans/${planId}`);
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect((body.plan as Record<string, unknown>).status).toBe("prepared");
+  });
+
+  it("POST /api/v1/conversations/clear-plans/:id/execute completes the plan", async () => {
+    const res = await post(`/api/v1/conversations/clear-plans/${planId}/execute`, {});
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const plan = body.plan as Record<string, unknown>;
+    expect(plan.status).toBe("completed");
+    expect(typeof plan.deleted_count).toBe("number");
+    expect(Array.isArray(plan.conversations)).toBe(true);
+  });
+
+  it("GET /api/v1/conversations/clear-plans/:id 404s for unknown plan", async () => {
+    const res = await get("/api/v1/conversations/clear-plans/plan_nonexistent99");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("Conversations — search", () => {
+  beforeAll(async () => {
+    await post("/api/v1/conversations", { title: "Searchable conversation abc123" });
+  });
+
+  it("GET /api/v1/conversations/search finds by keyword", async () => {
+    const res = await get("/api/v1/conversations/search?q=abc123");
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const convs = body.conversations as Array<Record<string, string>>;
+    expect(convs.some((c) => c.title.includes("abc123"))).toBe(true);
+  });
+
+  it("GET /api/v1/conversations/search returns empty for no match", async () => {
+    const res = await get("/api/v1/conversations/search?q=zzznomatch99999");
+    const body = await json(res);
+    expect((body.conversations as unknown[]).length).toBe(0);
+  });
+});
+
+describe("Statistics — new fields", () => {
+  it("GET /api/v1/statistics returns archived + deleted + tokens fields", async () => {
+    const res = await get("/api/v1/statistics");
+    expect(res.status).toBe(200);
+    const body = await json(res);
+    expect(body.ok).toBe(true);
+    const stats = body.statistics as Record<string, unknown>;
+    const convs = stats.conversations as Record<string, number>;
+    expect(typeof convs.total).toBe("number");
+    expect(typeof convs.active).toBe("number");
+    expect(typeof convs.archived).toBe("number");
+    expect(typeof convs.deleted).toBe("number");
+    const tokens = stats.tokens as Record<string, number>;
+    expect(typeof tokens.input_tokens).toBe("number");
+    expect(typeof tokens.output_tokens).toBe("number");
+    expect(typeof tokens.total_tokens).toBe("number");
+    expect(typeof (stats.messages as Record<string, number>).total).toBe("number");
+    expect(typeof (stats.runs as Record<string, number>).total).toBe("number");
   });
 });

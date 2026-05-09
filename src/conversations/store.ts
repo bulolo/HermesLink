@@ -8,7 +8,7 @@ export interface ConversationManifest {
   id: string;
   kind: string;
   title: string;
-  status: "active" | "deleted_soft";
+  status: "active" | "archived" | "deleted_soft";
   hermes_session_id: string | null;
   hermes_session_ids?: string[];
   profile_uid: string | null;
@@ -50,12 +50,52 @@ export interface MessagePart {
   [key: string]: unknown;
 }
 
+export type LinkApprovalDecision = "once" | "session" | "always" | "deny";
+export type LinkApprovalStatus = "pending" | "approved" | "denied" | "expired";
+
+export interface LinkApprovalRequest {
+  id: string;
+  status: LinkApprovalStatus;
+  kind: "terminal_command";
+  command: string;
+  description?: string;
+  pattern_key?: string;
+  pattern_keys?: string[];
+  choices: LinkApprovalDecision[];
+  created_at: string;
+  resolved_at?: string;
+  decision?: LinkApprovalDecision;
+  resume_available: boolean;
+  resolution_hint?: string;
+  resolution_hint_zh?: string;
+  resolution_hint_en?: string;
+  config_path?: string;
+}
+
+export interface AgentEvent {
+  id: string;
+  kind?: "tool" | "thinking_delta";
+  title: string;
+  status: "running" | "completed" | "failed" | "info";
+  created_at: string;
+  subtitle?: string;
+  detail?: string;
+  text?: string;
+  phase?: "thinking" | "final";
+  completed_at?: string;
+  raw?: { format: string; payload: unknown };
+}
+
+export type LinkMessageBlock =
+  | { id: string; type: "text"; text: string; created_at: string; updated_at?: string }
+  | { id: string; type: "agent_events"; events: AgentEvent[]; created_at: string; updated_at?: string };
+
 export interface ConversationMessage {
   id: string;
-  schema_version: number;
+  schema_version: 1;
   conversation_id: string;
-  role: "user" | "assistant";
-  status: "completed" | "streaming" | "failed" | "queued";
+  role: "user" | "assistant" | "tool" | "system";
+  status: "completed" | "streaming" | "failed" | "queued" | "cancelled";
   run_id?: string;
   client_message_id?: string;
   created_at: string;
@@ -69,18 +109,11 @@ export interface ConversationMessage {
   };
   parts: MessagePart[];
   attachments: unknown[];
+  blocks?: LinkMessageBlock[];
   agent_events?: AgentEvent[];
+  approvals?: LinkApprovalRequest[];
   hermes?: Record<string, unknown>;
   raw?: Record<string, unknown>;
-}
-
-export interface AgentEvent {
-  id: string;
-  type: string;
-  status: "running" | "completed" | "failed";
-  started_at: string;
-  completed_at?: string;
-  payload?: Record<string, unknown>;
 }
 
 export interface ConversationRun {
@@ -190,6 +223,17 @@ export async function readManifest(
 }
 
 export async function readActiveManifest(
+  paths: RuntimePaths,
+  conversationId: string,
+): Promise<ConversationManifest> {
+  const manifest = await readManifest(paths, conversationId);
+  if (!manifest || manifest.status === "deleted_soft" || manifest.status === "archived") {
+    throw new LinkHttpError(404, "conversation_not_found", "Conversation was not found");
+  }
+  return manifest;
+}
+
+export async function readExistingManifest(
   paths: RuntimePaths,
   conversationId: string,
 ): Promise<ConversationManifest> {

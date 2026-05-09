@@ -138,6 +138,48 @@ export function createConversationsRouter(options: {
     ctx.body = { ok: true, conversations: result.conversations, page: result.page };
   });
 
+  router.get("/api/v1/conversations/archived", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.set("cache-control", "no-store");
+    const result = await conversations.listArchivedConversationPage({
+      limit: readLimit(ctx.query.limit),
+      cursor: readQueryString(ctx.query.cursor) ?? readQueryString(ctx.query.after),
+    });
+    ctx.body = { ok: true, conversations: result.conversations, page: result.page };
+  });
+
+  router.get("/api/v1/conversations/archived/search", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.set("cache-control", "no-store");
+    const result = await conversations.searchArchivedConversationPage({
+      limit: readLimit(ctx.query.limit),
+      cursor: readQueryString(ctx.query.cursor) ?? readQueryString(ctx.query.after),
+      query: readQueryString(ctx.query.query) ?? readQueryString(ctx.query.q) ?? readQueryString(ctx.query.keyword) ?? "",
+    });
+    ctx.body = { ok: true, conversations: result.conversations, page: result.page };
+  });
+
+  router.post("/api/v1/conversations/archive-plans", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    const body = await readJsonBody(ctx.req);
+    const excludeIds = readStringArray(body, "exclude_conversation_ids", "excludeConversationIds") ?? [];
+    const plan = await conversations.prepareArchiveAllConversationPlan({ excludeConversationIds: excludeIds });
+    ctx.status = 201;
+    ctx.body = { ok: true, plan };
+  });
+
+  router.get("/api/v1/conversations/archive-plans/:planId", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.set("cache-control", "no-store");
+    ctx.body = { ok: true, plan: await conversations.readArchiveAllConversationPlan(ctx.params.planId) };
+  });
+
+  router.post("/api/v1/conversations/archive-plans/:planId/execute", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    const plan = await conversations.executeArchiveAllConversationPlan(ctx.params.planId);
+    ctx.body = { ok: true, plan };
+  });
+
   router.post("/api/v1/conversations/clear-plans", async (ctx) => {
     await authenticateRequest(ctx, paths);
     const plan = await conversations.prepareClearAllConversationPlan();
@@ -273,6 +315,16 @@ export function createConversationsRouter(options: {
     const title = readString(body, "title", "name", "display_name");
     if (!title) throw new LinkHttpError(400, "title_required", "title is required");
     ctx.body = { ok: true, ...await conversations.renameConversation(ctx.params.conversationId, title) as Record<string, unknown> };
+  });
+
+  router.post("/api/v1/conversations/:conversationId/archive", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.body = { ok: true, ...await conversations.archiveConversation(ctx.params.conversationId) as Record<string, unknown> };
+  });
+
+  router.post("/api/v1/conversations/:conversationId/unarchive", async (ctx) => {
+    await authenticateRequest(ctx, paths);
+    ctx.body = { ok: true, ...await conversations.unarchiveConversation(ctx.params.conversationId) as Record<string, unknown> };
   });
 
   router.post("/api/v1/conversations/:conversationId/ack", async (ctx) => {

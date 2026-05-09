@@ -17,6 +17,7 @@ import {
   createRunId,
   listConversationIds,
   readActiveManifest,
+  readExistingManifest,
   readEvents,
   readManifest,
   readSnapshot,
@@ -194,6 +195,9 @@ function normalizeLimit(value: unknown, defaultValue: number, max: number): numb
 
 export type ConversationServiceEvent = ConversationEvent & { conversation_id: string };
 
+const clearPlans = new Map<string, Record<string, unknown>>();
+const archivePlans = new Map<string, Record<string, unknown>>();
+
 export class ConversationService extends EventEmitter {
   private paths: RuntimePaths;
   private logger: Logger | null;
@@ -274,6 +278,81 @@ export class ConversationService extends EventEmitter {
     return events.filter((e) => e.seq > after);
   }
 
+  private summarizeManifest(manifest: ConversationManifest, snapshot?: ConversationSnapshot): unknown {
+    const stats = manifest.stats;
+    const profileName = manifest.profile ?? manifest.profile_name_snapshot ?? "default";
+    let lastMessage: { id: string; role: string; content_preview: string } | null = null;
+    if (snapshot && snapshot.messages.length > 0) {
+      const last = snapshot.messages[snapshot.messages.length - 1];
+      if (last) {
+        const text = last.parts.find((p) => p.type === "text")?.text ?? "";
+        lastMessage = { id: last.id, role: last.role, content_preview: text.slice(0, 200) };
+      }
+    }
+    return {
+      id: manifest.id,
+      title: manifest.title,
+      created_at: manifest.created_at,
+      updated_at: manifest.updated_at,
+      last_event_seq: manifest.last_event_seq,
+      usage: {
+        input_tokens: stats?.input_tokens ?? 0,
+        output_tokens: stats?.output_tokens ?? 0,
+        total_tokens: stats?.total_tokens ?? 0,
+        ...(stats?.updated_at ? { updated_at: stats.updated_at } : {}),
+      },
+      profile: {
+        uid: manifest.profile_uid ?? undefined,
+        name: profileName,
+        display_name: profileName,
+        avatar_url: null,
+      },
+      last_message: lastMessage,
+    };
+  }
+
+  private buildRuntimeMetadata(manifest: ConversationManifest): unknown {
+    const stats = manifest.stats;
+    const profileName = manifest.profile ?? manifest.profile_name_snapshot ?? "default";
+    const usagePercent =
+      stats?.context_window && stats.total_tokens
+        ? Math.min(100, Math.round((stats.total_tokens / stats.context_window) * 100))
+        : undefined;
+    return {
+      profile: {
+        uid: manifest.profile_uid ?? undefined,
+        name: profileName,
+        display_name: profileName,
+        avatar_url: null,
+      },
+      model: {
+        id: stats?.model ?? "unknown",
+        ...(stats?.provider ? { provider: stats.provider } : {}),
+        ...(stats?.context_window ? { context_window: stats.context_window } : {}),
+      },
+      context: {
+        input_tokens: stats?.input_tokens ?? 0,
+        output_tokens: stats?.output_tokens ?? 0,
+        total_tokens: stats?.total_tokens ?? 0,
+        ...(stats?.context_window ? { context_window: stats.context_window } : {}),
+        ...(usagePercent !== undefined ? { usage_percent: usagePercent } : {}),
+        source: stats?.model ? ("estimated" as const) : ("unknown" as const),
+        ...(stats?.updated_at ? { updated_at: stats.updated_at } : {}),
+      },
+    };
+  }
+
+  async listConversations(): Promise<unknown[]> {
+    const ids = await listConversationIds(this.paths);
+    const manifests: ConversationManifest[] = [];
+    for (const id of ids) {
+      const m = await readManifest(this.paths, id);
+      if (m && m.status !== "deleted_soft") manifests.push(m);
+    }
+    manifests.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    return manifests.map((m) => this.summarizeManifest(m));
+  }
+
   async listConversationPage(options: { limit?: number; cursor?: string | null } = {}): Promise<{
     conversations: unknown[];
     page: { limit: number; has_more: boolean; next_cursor: string | null };
@@ -283,7 +362,7 @@ export class ConversationService extends EventEmitter {
     const manifests: ConversationManifest[] = [];
     for (const id of ids) {
       const m = await readManifest(this.paths, id);
-      if (m && m.status !== "deleted_soft") manifests.push(m);
+      if (m && m.status === "active") manifests.push(m);
     }
     manifests.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     let startIndex = 0;
@@ -314,9 +393,59 @@ export class ConversationService extends EventEmitter {
     const results: ConversationManifest[] = [];
     for (const id of ids) {
       const m = await readManifest(this.paths, id);
-      if (m && m.status !== "deleted_soft" && m.title.toLowerCase().includes(q)) {
+      if (m && m.status === "active" && m.title.toLowerCase().includes(q)) {
         results.push(m);
       }
+    }
+    results.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    const page = results.slice(0, limit);
+    return {
+      conversations: page.map((m) => this.summarizeManifest(m)),
+      page: { limit, has_more: results.length > limit, next_cursor: null },
+    };
+  }
+
+  async listArchivedConversationPage(options: { limit?: number; cursor?: string | null } = {}): Promise<{
+    conversations: unknown[];
+    page: { limit: number; has_more: boolean; next_cursor: string | null };
+  }> {
+    const limit = normalizeLimit(options.limit, 20, 100);
+    const ids = await listConversationIds(this.paths);
+    const manifests: ConversationManifest[] = [];
+    for (const id of ids) {
+      const m = await readManifest(this.paths, id);
+      if (m && m.status === "archived") manifests.push(m);
+    }
+    manifests.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+    let startIndex = 0;
+    if (options.cursor) {
+      const idx = manifests.findIndex((m) => m.id === options.cursor);
+      if (idx >= 0) startIndex = idx + 1;
+    }
+    const page = manifests.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < manifests.length;
+    return {
+      conversations: page.map((m) => this.summarizeManifest(m)),
+      page: {
+        limit,
+        has_more: hasMore,
+        next_cursor: hasMore && page.length > 0 ? (page[page.length - 1]?.id ?? null) : null,
+      },
+    };
+  }
+
+  async searchArchivedConversationPage(options: { limit?: number; cursor?: string | null; query?: string } = {}): Promise<{
+    conversations: unknown[];
+    page: { limit: number; has_more: boolean; next_cursor: string | null };
+  }> {
+    if (!options.query?.trim()) return this.listArchivedConversationPage(options);
+    const q = options.query.trim().toLowerCase();
+    const limit = normalizeLimit(options.limit, 20, 100);
+    const ids = await listConversationIds(this.paths);
+    const results: ConversationManifest[] = [];
+    for (const id of ids) {
+      const m = await readManifest(this.paths, id);
+      if (m && m.status === "archived" && m.title.toLowerCase().includes(q)) results.push(m);
     }
     results.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
     const page = results.slice(0, limit);
@@ -351,7 +480,7 @@ export class ConversationService extends EventEmitter {
     conversationId: string,
     options: { limit?: number; beforeMessageId?: string | null } = {},
   ): Promise<unknown> {
-    const manifest = await readActiveManifest(this.paths, conversationId);
+    const manifest = await readExistingManifest(this.paths, conversationId);
     const snapshot = await readSnapshot(this.paths, conversationId);
     const limit = normalizeLimit(options.limit, 50, 200);
     const total = snapshot.messages.length;
@@ -364,6 +493,7 @@ export class ConversationService extends EventEmitter {
     return {
       messages,
       last_event_seq: manifest.last_event_seq,
+      runtime: this.buildRuntimeMetadata(manifest),
       page: {
         limit,
         has_more_before: startIndex > 0,
@@ -395,7 +525,17 @@ export class ConversationService extends EventEmitter {
   }): Promise<unknown> {
     const content = input.content.trim();
     if (!content) throw new LinkHttpError(400, "message_content_required", "message content is required");
-    const manifest = await readActiveManifest(this.paths, input.conversationId);
+    const raw = await readManifest(this.paths, input.conversationId);
+    if (!raw || raw.status === "deleted_soft") {
+      throw new LinkHttpError(404, "conversation_not_found", "Conversation was not found");
+    }
+    // Auto-restore archived conversations when a new message is sent
+    if (raw.status === "archived") {
+      raw.status = "active";
+      raw.updated_at = new Date().toISOString();
+      await writeManifest(this.paths, raw);
+    }
+    const manifest = raw;
     const snapshot = await readSnapshot(this.paths, input.conversationId);
     const now = new Date().toISOString();
     const runId = createRunId();
@@ -470,8 +610,14 @@ export class ConversationService extends EventEmitter {
       assistant_message: { id: assistantMessageId, status: assistantMessage.status },
       run: { id: runId, status: run.status },
       last_event_seq: latestEvent.seq,
-      conversation: this.summarizeManifest(manifest),
+      conversation: this.summarizeManifest(manifest, snapshot),
     };
+  }
+
+  async cancelRunById(runId: string): Promise<unknown> {
+    const active = this.activeRunControllers.get(runId);
+    if (!active) throw new LinkHttpError(404, "run_not_found", "Run was not found");
+    return this.cancelRun(active.conversationId, runId);
   }
 
   async cancelRun(conversationId: string, runId: string): Promise<unknown> {
@@ -706,13 +852,52 @@ export class ConversationService extends EventEmitter {
   async deleteConversation(conversationId: string): Promise<unknown> {
     assertValidConversationId(conversationId);
     return withConversationLock(conversationId, async () => {
-      const manifest = await readActiveManifest(this.paths, conversationId);
+      const manifest = await readExistingManifest(this.paths, conversationId);
       const now = new Date().toISOString();
+      const hermesSessionIds = manifest.hermes_session_ids ?? (manifest.hermes_session_id ? [manifest.hermes_session_id] : []);
       manifest.status = "deleted_soft";
       manifest.deleted_at = now;
       manifest.updated_at = now;
       await writeManifest(this.paths, manifest);
-      return { conversation_id: conversationId, deleted_at: now };
+      return {
+        conversation_id: conversationId,
+        hermes_deleted: false,
+        ...(hermesSessionIds.length > 0 ? { hermes_session_ids: hermesSessionIds } : {}),
+        deleted_at: now,
+      };
+    });
+  }
+
+  async archiveConversation(conversationId: string): Promise<unknown> {
+    assertValidConversationId(conversationId);
+    return withConversationLock(conversationId, async () => {
+      const manifest = await readActiveManifest(this.paths, conversationId);
+      const now = new Date().toISOString();
+      manifest.status = "archived";
+      manifest.updated_at = now;
+      await writeManifest(this.paths, manifest);
+      const conv = this.summarizeManifest(manifest);
+      await this.appendAndEmit(conversationId, { type: "conversation.archived", payload: { conversation: conv } }, manifest);
+      await writeManifest(this.paths, manifest);
+      return { conversation_id: conversationId, archived_at: now };
+    });
+  }
+
+  async unarchiveConversation(conversationId: string): Promise<unknown> {
+    assertValidConversationId(conversationId);
+    return withConversationLock(conversationId, async () => {
+      const manifest = await readExistingManifest(this.paths, conversationId);
+      if (manifest.status !== "archived") {
+        throw new LinkHttpError(400, "conversation_not_archived", "Conversation is not archived");
+      }
+      const now = new Date().toISOString();
+      manifest.status = "active";
+      manifest.updated_at = now;
+      await writeManifest(this.paths, manifest);
+      const conv = this.summarizeManifest(manifest);
+      await this.appendAndEmit(conversationId, { type: "conversation.unarchived", payload: { conversation: conv } }, manifest);
+      await writeManifest(this.paths, manifest);
+      return { conversation_id: conversationId, unarchived_at: now };
     });
   }
 
@@ -741,18 +926,28 @@ export class ConversationService extends EventEmitter {
       manifest.title = title;
       manifest.updated_at = new Date().toISOString();
       await writeManifest(this.paths, manifest);
-      await this.appendAndEmit(conversationId, { type: "conversation.updated", payload: { conversation: this.summarizeManifest(manifest) } }, manifest);
+      const conv = this.summarizeManifest(manifest);
+      const event = await this.appendAndEmit(conversationId, { type: "conversation.updated", payload: { conversation: conv } }, manifest);
       await writeManifest(this.paths, manifest);
-      return { conversation_id: conversationId, title };
+      return { conversation_id: conversationId, title, conversation: conv, hermes_synced: false, last_event_seq: event.seq };
     });
   }
 
   async setConversationModel(conversationId: string, modelId: string): Promise<unknown> {
     return withConversationLock(conversationId, async () => {
       const manifest = await readActiveManifest(this.paths, conversationId);
+      if (manifest.stats) manifest.stats.model = modelId;
       manifest.updated_at = new Date().toISOString();
       await writeManifest(this.paths, manifest);
-      return { conversation_id: conversationId, model_id: modelId };
+      const conv = this.summarizeManifest(manifest);
+      const event = await this.appendAndEmit(conversationId, { type: "conversation.updated", payload: { conversation: conv } }, manifest);
+      await writeManifest(this.paths, manifest);
+      return {
+        conversation_id: conversationId,
+        model_override: modelId,
+        runtime: this.buildRuntimeMetadata(manifest),
+        last_event_seq: event.seq,
+      };
     });
   }
 
@@ -763,7 +958,21 @@ export class ConversationService extends EventEmitter {
       manifest.profile_name_snapshot = profileName;
       manifest.updated_at = new Date().toISOString();
       await writeManifest(this.paths, manifest);
-      return { conversation_id: conversationId, profile: profileName };
+      const conv = this.summarizeManifest(manifest);
+      const event = await this.appendAndEmit(conversationId, { type: "conversation.updated", payload: { conversation: conv } }, manifest);
+      await writeManifest(this.paths, manifest);
+      return {
+        conversation_id: conversationId,
+        profile: {
+          uid: manifest.profile_uid ?? "",
+          name: profileName,
+          display_name: profileName,
+          avatar_url: null,
+        },
+        runtime: this.buildRuntimeMetadata(manifest),
+        conversation: conv,
+        last_event_seq: event.seq,
+      };
     });
   }
 
@@ -799,67 +1008,203 @@ export class ConversationService extends EventEmitter {
     return { deleted_count: count };
   }
 
-  async prepareClearAllConversationPlan(): Promise<unknown> {
+  async shouldPublishNotificationEvent(event: Pick<ConversationEvent, "type" | "conversation_id" | "payload">): Promise<boolean> {
+    const publishable = ["conversation.updated", "message.created", "run.started", "run.completed", "run.failed", "run.cancelled"];
+    return publishable.includes(event.type);
+  }
+
+  async prepareClearAllConversationPlan(targetStatus: "active" | "archived" = "active"): Promise<unknown> {
     const planId = `plan_${crypto.randomUUID().replaceAll("-", "")}`;
+    const now = new Date().toISOString();
     const ids = await listConversationIds(this.paths);
-    const activeIds: string[] = [];
+    const targetIds: string[] = [];
     for (const id of ids) {
       const m = await readManifest(this.paths, id);
-      if (m && m.status === "active") activeIds.push(id);
+      if (m && m.status === targetStatus) targetIds.push(id);
     }
-    return {
+    const plan: Record<string, unknown> = {
       id: planId,
-      status: "pending",
-      conversation_count: activeIds.length,
-      conversation_ids: activeIds,
-      created_at: new Date().toISOString(),
+      status: "prepared",
+      target_status: targetStatus,
+      created_at: now,
+      updated_at: now,
+      total_count: targetIds.length,
+      deleted_count: 0,
+      failed_count: 0,
+      conversation_ids: targetIds,
+      conversations: [],
     };
+    clearPlans.set(planId, plan);
+    return plan;
   }
 
   async readClearAllConversationPlan(planId: string): Promise<unknown> {
-    return { id: planId, status: "pending", conversation_count: 0, conversation_ids: [], created_at: new Date().toISOString() };
+    const plan = clearPlans.get(planId);
+    if (!plan) throw new LinkHttpError(404, "plan_not_found", "Clear plan was not found");
+    return plan;
+  }
+
+  async executeClearAllConversationPlan(planId: string): Promise<unknown> {
+    return this.startClearAllConversationPlan(planId);
   }
 
   async startClearAllConversationPlan(planId: string): Promise<unknown> {
-    const ids = await listConversationIds(this.paths);
-    let count = 0;
-    for (const id of ids) {
-      const m = await readManifest(this.paths, id);
-      if (m && m.status === "active") {
-        await this.deleteConversation(id).catch(() => undefined);
-        count++;
+    const plan = clearPlans.get(planId) ?? { id: planId, conversation_ids: [], total_count: 0 };
+    const now = new Date().toISOString();
+    clearPlans.set(planId, { ...plan, status: "executing", updated_at: now });
+    const conversationIds = Array.isArray(plan.conversation_ids) ? (plan.conversation_ids as string[]) : [];
+    let deletedCount = 0, failedCount = 0;
+    const conversations: unknown[] = [];
+    for (const id of conversationIds) {
+      try {
+        const result = await this.deleteConversation(id) as Record<string, unknown>;
+        conversations.push({ ...result, status: "deleted" });
+        deletedCount++;
+      } catch (err) {
+        failedCount++;
+        conversations.push({
+          conversation_id: id,
+          status: "failed",
+          error: { code: err instanceof LinkHttpError ? err.code : "internal_error", message: (err as Error).message },
+        });
       }
     }
-    return { id: planId, status: "completed", deleted_count: count, completed_at: new Date().toISOString() };
+    const completed = {
+      ...plan,
+      status: "completed",
+      updated_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      deleted_count: deletedCount,
+      failed_count: failedCount,
+      conversations,
+    };
+    clearPlans.set(planId, completed);
+    return completed;
+  }
+
+  async prepareArchiveAllConversationPlan(input: { excludeConversationIds?: string[] } = {}): Promise<unknown> {
+    const planId = `plan_${crypto.randomUUID().replaceAll("-", "")}`;
+    const now = new Date().toISOString();
+    const excluded = new Set(input.excludeConversationIds ?? []);
+    const ids = await listConversationIds(this.paths);
+    const targetIds: string[] = [];
+    for (const id of ids) {
+      if (excluded.has(id)) continue;
+      const m = await readManifest(this.paths, id);
+      if (m && m.status === "active") targetIds.push(id);
+    }
+    const plan: Record<string, unknown> = {
+      id: planId,
+      status: "prepared",
+      created_at: now,
+      updated_at: now,
+      total_count: targetIds.length,
+      archived_count: 0,
+      failed_count: 0,
+      conversation_ids: targetIds,
+      conversations: [],
+    };
+    archivePlans.set(planId, plan);
+    return plan;
+  }
+
+  async readArchiveAllConversationPlan(planId: string): Promise<unknown> {
+    const plan = archivePlans.get(planId);
+    if (!plan) throw new LinkHttpError(404, "plan_not_found", "Archive plan was not found");
+    return plan;
+  }
+
+  async executeArchiveAllConversationPlan(planId: string): Promise<unknown> {
+    return this.startArchiveAllConversationPlan(planId);
+  }
+
+  async startArchiveAllConversationPlan(planId: string): Promise<unknown> {
+    const plan = archivePlans.get(planId) ?? { id: planId, conversation_ids: [], total_count: 0 };
+    const now = new Date().toISOString();
+    archivePlans.set(planId, { ...plan, status: "executing", updated_at: now });
+    const conversationIds = Array.isArray(plan.conversation_ids) ? (plan.conversation_ids as string[]) : [];
+    let archivedCount = 0, failedCount = 0;
+    const conversations: unknown[] = [];
+    for (const id of conversationIds) {
+      try {
+        const result = await this.archiveConversation(id) as Record<string, unknown>;
+        conversations.push({ ...result, status: "archived" });
+        archivedCount++;
+      } catch (err) {
+        failedCount++;
+        conversations.push({
+          conversation_id: id,
+          status: "failed",
+          error: { code: err instanceof LinkHttpError ? err.code : "internal_error", message: (err as Error).message },
+        });
+      }
+    }
+    const completed = {
+      ...plan,
+      status: "completed",
+      updated_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      archived_count: archivedCount,
+      failed_count: failedCount,
+      conversations,
+    };
+    archivePlans.set(planId, completed);
+    return completed;
   }
 
   async resolveApproval(input: { conversationId: string; approvalId: string; decision: string }): Promise<unknown> {
-    return { conversation_id: input.conversationId, approval_id: input.approvalId, decision: input.decision };
+    const now = new Date().toISOString();
+    let lastEventSeq = 0;
+    try {
+      const m = await readManifest(this.paths, input.conversationId);
+      if (m) lastEventSeq = m.last_event_seq;
+    } catch {}
+    return {
+      conversation_id: input.conversationId,
+      message_id: "",
+      approval: {
+        id: input.approvalId,
+        status: input.decision === "deny" ? "denied" : "approved",
+        kind: "terminal_command",
+        command: "",
+        choices: ["once", "session", "always", "deny"],
+        created_at: now,
+        resolved_at: now,
+        decision: input.decision,
+        resume_available: false,
+      },
+      command_allowlist_updated: false,
+      requires_gateway_reload: false,
+      resume_available: false,
+      last_event_seq: lastEventSeq,
+    };
   }
 
-  async getStatistics(options: { profileUid?: string | null; profileName?: string | null }): Promise<{
-    conversations: { total: number; active: number };
-    messages: { total: number };
-    runs: { total: number };
-    models: { total: number };
-    skills: { total: number };
-    tools: { total: number };
-    profiles: { total: number };
-  }> {
+  async getStatistics(options: { profileUid?: string | null; profileName?: string | null } = {}): Promise<unknown> {
     const ids = await listConversationIds(this.paths);
-    let total = 0, active = 0, messages = 0, runs = 0;
+    let total = 0, active = 0, archived = 0, deleted = 0;
+    let inputTokens = 0, outputTokens = 0, totalTokens = 0;
+    let messages = 0, runs = 0;
     for (const id of ids) {
       const m = await readManifest(this.paths, id);
       if (!m) continue;
       if (options.profileName && m.profile !== options.profileName) continue;
+      if (options.profileUid && m.profile_uid !== options.profileUid) continue;
       total++;
       if (m.status === "active") active++;
-      const snap = await readSnapshot(this.paths, id);
-      messages += snap.messages.length;
-      runs += snap.runs.filter((r) => r.kind === "agent").length;
+      else if (m.status === "archived") archived++;
+      else if (m.status === "deleted_soft") deleted++;
+      if (m.stats) {
+        inputTokens += m.stats.input_tokens;
+        outputTokens += m.stats.output_tokens;
+        totalTokens += m.stats.total_tokens;
+        messages += m.stats.message_count;
+        runs += m.stats.run_count;
+      }
     }
     return {
-      conversations: { total, active },
+      conversations: { total, active, archived, deleted },
+      tokens: { input_tokens: inputTokens, output_tokens: outputTokens, total_tokens: totalTokens },
       messages: { total: messages },
       runs: { total: runs },
       models: { total: 0 },
@@ -869,18 +1214,4 @@ export class ConversationService extends EventEmitter {
     };
   }
 
-  private summarizeManifest(manifest: ConversationManifest): unknown {
-    return {
-      id: manifest.id,
-      kind: manifest.kind,
-      title: manifest.title,
-      status: manifest.status,
-      profile: manifest.profile,
-      profile_uid: manifest.profile_uid,
-      last_event_seq: manifest.last_event_seq,
-      created_at: manifest.created_at,
-      updated_at: manifest.updated_at,
-      stats: manifest.stats ?? null,
-    };
-  }
 }

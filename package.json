@@ -1,7 +1,8 @@
 {
   "name": "@bulolo/hermes-link",
-  "version": "0.3.1",
-  "description": "Local companion service and CLI for Hermes Agent, enabling mobile and LAN access",
+  "version": "0.3.2",
+  "description": "Provides full client API, multi-device auth and conversation management for Hermes Agent, with LAN and internet connectivity.",
+  "author": "Bulolo",
   "license": "MIT",
   "type": "module",
   "bin": {

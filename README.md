@@ -341,37 +341,143 @@ hermeslink config set log-level debug         # 日志级别：debug / info / wa
 
 ### 对话（Conversations）
 
+#### 活跃对话
+
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/conversations` | 列出所有对话（`?limit=20&cursor=xxx`） |
-| GET | `/api/v1/conversations/search` | 搜索对话（`?q=关键词`） |
+| GET | `/api/v1/conversations` | 列出活跃对话（`?limit=20&cursor=xxx`） |
+| GET | `/api/v1/conversations/search` | 搜索活跃对话（`?q=关键词`） |
 | POST | `/api/v1/conversations` | 新建对话 |
-| DELETE | `/api/v1/conversations` | 批量删除对话 |
+| DELETE | `/api/v1/conversations` | 批量删除对话（`{"conversation_ids":["conv_xxx"]}`） |
 | DELETE | `/api/v1/conversations/:id` | 删除单个对话 |
-| GET | `/api/v1/conversations/:id/messages` | 获取对话消息列表 |
+| GET | `/api/v1/conversations/:id/messages` | 获取对话消息列表（含 `runtime` 上下文信息） |
 | POST | `/api/v1/conversations/:id/messages` | 发送消息 |
 | GET | `/api/v1/conversations/:id/events` | SSE 实时事件流 |
 | GET | `/api/v1/conversations/events` | 所有对话事件流（SSE） |
 | PATCH | `/api/v1/conversations/:id/title` | 重命名对话（`{"title":"新标题"}`） |
-| PATCH | `/api/v1/conversations/:id/model` | 切换模型 |
+| PATCH | `/api/v1/conversations/:id/model` | 切换模型（`{"model_id":"xxx"}`） |
 | PATCH | `/api/v1/conversations/:id/profile` | 切换 profile |
 | POST | `/api/v1/conversations/:id/ack` | 确认已读 |
-| POST | `/api/v1/conversations/clear-plans` | 创建批量清理计划 |
-| GET | `/api/v1/conversations/clear-plans/:planId` | 查询清理计划状态 |
-| POST | `/api/v1/conversations/clear-plans/:planId/execute` | 执行清理计划 |
 | POST | `/api/v1/conversations/:id/runs/:runId/cancel` | 取消对话内的某次执行 |
-| POST | `/api/v1/conversations/:id/approvals/:approvalId/approve` | 审批工具调用（允许） |
+| POST | `/api/v1/conversations/:id/approvals/:approvalId/approve` | 审批工具调用（允许，`{"scope":"once\|session\|always"}`） |
 | POST | `/api/v1/conversations/:id/approvals/:approvalId/deny` | 审批工具调用（拒绝） |
 | POST | `/api/v1/conversations/:id/blobs` | 上传附件 |
 | GET | `/api/v1/conversations/:id/blobs/:blobId` | 下载附件 |
 | DELETE | `/api/v1/conversations/:id/blobs/:blobId` | 删除附件 |
 
+#### 归档对话
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/v1/conversations/archived` | 列出已归档对话（`?limit=20&cursor=xxx`） |
+| GET | `/api/v1/conversations/archived/search` | 搜索已归档对话（`?q=关键词`） |
+| POST | `/api/v1/conversations/:id/archive` | 归档对话（发送新消息时自动恢复为活跃） |
+| POST | `/api/v1/conversations/:id/unarchive` | 取消归档 |
+
+#### 批量清理计划
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/conversations/clear-plans` | 创建批量删除计划（`{"target_status":"active\|archived"}`） |
+| GET | `/api/v1/conversations/clear-plans/:planId` | 查询计划状态 |
+| POST | `/api/v1/conversations/clear-plans/:planId/execute` | 执行计划（批量删除） |
+
+#### 批量归档计划
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/v1/conversations/archive-plans` | 创建批量归档计划（`{"exclude_conversation_ids":[]}`） |
+| GET | `/api/v1/conversations/archive-plans/:planId` | 查询计划状态 |
+| POST | `/api/v1/conversations/archive-plans/:planId/execute` | 执行计划（批量归档） |
+
+#### 响应结构说明
+
+**ConversationSummary**（对话列表每项）：
+
+```json
+{
+  "id": "conv_xxx",
+  "title": "对话标题",
+  "created_at": "2026-05-09T00:00:00.000Z",
+  "updated_at": "2026-05-09T00:00:00.000Z",
+  "last_event_seq": 12,
+  "usage": { "input_tokens": 100, "output_tokens": 200, "total_tokens": 300, "updated_at": "..." },
+  "profile": { "uid": "prof_xxx", "name": "default", "display_name": "default", "avatar_url": null },
+  "last_message": { "id": "msg_xxx", "role": "assistant", "content_preview": "消息摘要..." }
+}
+```
+
+**GET `/api/v1/conversations/:id/messages`** 响应新增 `runtime` 字段：
+
+```json
+{
+  "ok": true,
+  "messages": [...],
+  "last_event_seq": 12,
+  "runtime": {
+    "profile": { "name": "default", "display_name": "default", "avatar_url": null },
+    "model": { "id": "claude-3-5-sonnet", "provider": "anthropic", "context_window": 200000 },
+    "context": { "input_tokens": 100, "output_tokens": 200, "total_tokens": 300, "usage_percent": 0, "source": "estimated" }
+  },
+  "page": { "limit": 50, "has_more_before": false, "has_more_after": false, "oldest_message_id": "...", "newest_message_id": "..." }
+}
+```
+
+**LinkMessage**（消息对象）：
+
+```json
+{
+  "id": "msg_xxx",
+  "schema_version": 1,
+  "conversation_id": "conv_xxx",
+  "role": "user|assistant|tool|system",
+  "status": "queued|streaming|completed|failed|cancelled",
+  "created_at": "...",
+  "updated_at": "...",
+  "sender": { "id": "app_user", "type": "human|agent|system|tool", "display_name": "Me" },
+  "parts": [{ "type": "text", "text": "消息内容" }],
+  "attachments": [],
+  "blocks": [],
+  "agent_events": [],
+  "approvals": []
+}
+```
+
+**DELETE `/api/v1/conversations/:id`** 响应新增字段：
+
+```json
+{
+  "ok": true,
+  "conversation_id": "conv_xxx",
+  "hermes_deleted": false,
+  "deleted_at": "2026-05-09T00:00:00.000Z"
+}
+```
+
 ### 统计
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/v1/statistics` | 全局使用统计（对话、消息数等） |
+| GET | `/api/v1/statistics` | 全局使用统计（`?profile=xxx&profile_uid=xxx`） |
 | GET | `/api/v1/statistics/usage` | Token 用量统计（`?days=7&from=2026-05-01&to=2026-05-08&model=xxx&profile=xxx`） |
+
+**GET `/api/v1/statistics`** 响应：
+
+```json
+{
+  "ok": true,
+  "statistics": {
+    "conversations": { "total": 10, "active": 8, "archived": 1, "deleted": 1 },
+    "tokens": { "input_tokens": 5000, "output_tokens": 8000, "total_tokens": 13000 },
+    "messages": { "total": 120 },
+    "runs": { "total": 50 },
+    "models": { "total": 0 },
+    "profiles": { "total": 0 },
+    "skills": { "total": 0 },
+    "tools": { "total": 0 }
+  }
+}
+```
 
 ### 模型（Models）
 
