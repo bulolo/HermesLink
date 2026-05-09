@@ -134,7 +134,7 @@ hermes update
 npm package: [https://www.npmjs.com/package/@bulolo/hermes-link](https://www.npmjs.com/package/@bulolo/hermes-link)
 
 ```bash
-npm install -g @bulolo/hermes-link
+npm install -g @bulolo/hermes-link@latest --registry=https://registry.npmjs.org
 ```
 
 > If the `hermeslink` command is not found after installation, the npm global bin directory is not in your PATH. Fix it with:

@@ -137,7 +137,8 @@ hermes update
 npm 包地址：[https://www.npmjs.com/package/@bulolo/hermes-link](https://www.npmjs.com/package/@bulolo/hermes-link)
 
 ```bash
-npm install -g @bulolo/hermes-link
+npm install -g @bulolo/hermes-link@latest --registry=https://registry.npmjs.org
+
 ```
 
 > 安装后如果终端找不到 `hermeslink` 命令，说明 npm 全局 bin 目录不在 PATH 中，运行以下命令添加：
@@ -719,14 +720,8 @@ hermeslink autostart off
 npm install
 npm run build
 
-# 前台运行（调试）
-npm run dev:run
-# 或
-node dist/cli/index.js daemon --foreground
-
 # watch 模式（自动重编译，需手动重启服务）
 npm run dev:watch     # 终端1：监听源码变化自动 build
-node dist/cli/index.js daemon --foreground  # 终端2：运行服务
 node dist/cli/index.js pair
 # TypeScript 类型检查
 npm run check
