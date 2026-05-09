@@ -89,7 +89,7 @@ export async function runPairingPreflight(options: {
     preferred_urls: preferredUrls,
   };
 
-  const pageUrl = buildLocalPairingPageUrl(options.config.port, sessionId, token.token);
+  const pageUrl = buildLocalPairingPageUrl(preferredUrls[0] ?? `http://127.0.0.1:${options.config.port}`, sessionId, token.token);
 
   if (options.openBrowser !== false) {
     await openSystemBrowser(pageUrl).catch(() => undefined);
@@ -104,7 +104,7 @@ export async function runPairingPreflight(options: {
   };
 }
 
-export function buildLocalPairingPageUrl(port: number, sessionId: string, connectToken: string): string {
+export function buildLocalPairingPageUrl(baseUrl: string, sessionId: string, connectToken: string): string {
   const qs = new URLSearchParams({ session_id: sessionId, connect_token: connectToken });
-  return `http://127.0.0.1:${port}/pair?${qs.toString()}`;
+  return `${baseUrl}/pair?${qs.toString()}`;
 }

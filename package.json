@@ -1,6 +1,6 @@
 {
   "name": "@bulolo/hermes-link",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Provides full client API, multi-device auth and conversation management for Hermes Agent, with LAN and internet connectivity.",
   "author": "Bulolo",
   "license": "MIT",
