@@ -246,10 +246,10 @@ function escapeHtml(s: string): string {
   return s.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string, locale: string = "zh-CN"): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return iso;
-  return d.toLocaleString("zh-CN", { hour12: false });
+  return d.toLocaleString(locale, { hour12: locale !== "zh-CN" });
 }
 
 async function renderPairingPage(options: {
@@ -276,7 +276,7 @@ async function renderPairingPage(options: {
   const initialState = claimed ? "claimed" : isExpired ? "expired" : "waiting";
 
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -357,13 +357,13 @@ async function renderPairingPage(options: {
         <div class="copy">
           <div class="header-row">
             <span class="eyebrow">Hermes Link · ${escapeHtml(version)}</span>
-            <button id="langToggle" class="lang-btn">EN</button>
+            <button id="langToggle" class="lang-btn">中文</button>
           </div>
-          <h1 data-i18n="h1">在 App 里完成这次配对</h1>
-          <p class="subtitle" data-i18n="subtitle">扫码或手动输入配对码，完成 App 与本机的连接。</p>
+          <h1 data-i18n="h1">Complete Pairing in the App</h1>
+          <p class="subtitle" data-i18n="subtitle">Scan the QR code or enter the connect token to link this device.</p>
           <div class="meta-grid">
             <div class="meta">
-              <span class="meta-label" data-i18n="metaLocalUrl">本地地址</span>
+              <span class="meta-label" data-i18n="metaLocalUrl">Local Address</span>
               <div class="meta-value">${escapeHtml(currentUrl)}</div>
             </div>
             <div class="meta">
@@ -371,55 +371,55 @@ async function renderPairingPage(options: {
               <div class="meta-value">${escapeHtml(linkId)}</div>
             </div>
             <div class="meta">
-              <span class="meta-label" data-i18n="metaConnectToken">配对码</span>
+              <span class="meta-label" data-i18n="metaConnectToken">Connect Token</span>
               <div class="meta-value">${escapeHtml(session.code)}</div>
             </div>
             <div class="meta">
-              <span class="meta-label" data-i18n="metaExpires">过期时间</span>
-              <div class="meta-value" id="expiresValue" data-iso="${escapeHtml(session.expires_at)}">${escapeHtml(formatDate(session.expires_at))}</div>
+              <span class="meta-label" data-i18n="metaExpires">Expires</span>
+              <div class="meta-value" id="expiresValue" data-iso="${escapeHtml(session.expires_at)}">${escapeHtml(formatDate(session.expires_at, "en-US"))}</div>
             </div>
           </div>
           <div class="steps">
             <div class="step">
               <div class="step-badge">1</div>
               <div>
-                <p class="step-title" data-i18n="step1Title">在 App 里打开&ldquo;连接 Hermes Link&rdquo;</p>
-                <p class="step-copy" data-i18n="step1Copy">在 App 里找到&ldquo;连接 Link&rdquo;入口，选择扫码或手动输入配对码。配对成功后，App 会自动切到这台 Link。</p>
+                <p class="step-title" data-i18n="step1Title">Open &ldquo;Connect Hermes Link&rdquo; in the App</p>
+                <p class="step-copy" data-i18n="step1Copy">Find the &ldquo;Connect Link&rdquo; entry in the App, then scan the QR code or enter the token manually. The App will switch to this Link automatically after pairing.</p>
               </div>
             </div>
             <div class="step">
               <div class="step-badge">2</div>
               <div>
-                <p class="step-title" data-i18n="step2Title">扫二维码，或手动填写地址和配对码</p>
-                <p class="step-copy" data-i18n="step2Copy">如果扫码不方便，可在 App 里手动输入下方的地址和配对码完成连接。</p>
+                <p class="step-title" data-i18n="step2Title">Scan the QR code, or enter the address and token manually</p>
+                <p class="step-copy" data-i18n="step2Copy">If scanning is inconvenient, enter the address and connect token below in the App.</p>
               </div>
             </div>
             <div class="step">
               <div class="step-badge">3</div>
               <div>
-                <p class="step-title" data-i18n="step3Title">配对成功后，这个页面会自动变成已完成状态</p>
-                <p class="step-copy" id="statusHint">打开 App 扫码，或者复制配对码手动输入。</p>
+                <p class="step-title" data-i18n="step3Title">This page will update automatically once pairing is complete</p>
+                <p class="step-copy" id="statusHint">${initialState === "claimed" ? "Pairing complete. You can close this page." : initialState === "expired" ? "This QR code has expired. Please run hermeslink pair again." : "Open the App to scan, or copy the connect token for manual entry."}</p>
               </div>
             </div>
           </div>
-          <p class="hint" data-i18n="hint">可在终端继续保留这个页面，方便稍后核对状态；如果配对已经成功，页面不会再要求重新扫码。</p>
+          <p class="hint" data-i18n="hint">You can keep this page open to check pairing status later. If pairing has already succeeded, the page will not prompt for a re-scan.</p>
         </div>
         <div class="qr">
           <div class="card">
             <div class="status">
-              <h2 class="status-title" id="statusTitle">等待 App 扫码</h2>
-              <span class="pill" id="statusPill">等待中</span>
+              <h2 class="status-title" id="statusTitle">${initialState === "claimed" ? "Pairing Complete" : initialState === "expired" ? "Pairing Expired" : "Waiting for App to Scan"}</h2>
+              <span class="pill" id="statusPill">${initialState === "claimed" ? "Scanned" : initialState === "expired" ? "Expired" : "Waiting"}</span>
             </div>
             <div class="qr-frame">
               <img src="${qrDataUri}" alt="Hermes Link pairing QR code" />
             </div>
             <div class="manual">
               <div class="manual-row">
-                <span class="manual-label" data-i18n="manualAddrLabel">地址（任选一个可用的）</span>
+                <span class="manual-label" data-i18n="manualAddrLabel">Address (pick any that works)</span>
                 ${session.preferred_urls.map((u) => `<span class="manual-value">${escapeHtml(u)}</span>`).join("\n                ")}
               </div>
               <div class="manual-row">
-                <span class="manual-label" data-i18n="manualTokenLabel">配对码</span>
+                <span class="manual-label" data-i18n="manualTokenLabel">Connect Token</span>
                 <span class="manual-value code">${escapeHtml(session.code)}</span>
               </div>
             </div>
@@ -523,7 +523,7 @@ async function renderPairingPage(options: {
       applyLang();
     });
 
-    applyLang();
+    if (lang === 'zh') applyLang();
 
     let refreshTimer = null;
     const stopPolling = () => { if (refreshTimer !== null) { clearInterval(refreshTimer); refreshTimer = null; } };
